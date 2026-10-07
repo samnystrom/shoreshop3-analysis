@@ -1,0 +1,18 @@
+[project]
+name = "shoreshop3_analysis"
+version = "0.1.0"
+authors = [
+    { name = "Sam Nystrom", email = "sam.nystrom@duke.edu" },
+]
+description = ""
+keywords = []
+#license = { file = "LICENSE" }
+#readme = "README.md"
+requires-python = ">=3.11"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["shoreshop3_analysis*"]
