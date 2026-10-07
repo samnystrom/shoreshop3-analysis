@@ -13,6 +13,32 @@ def override(x):
     return x
 
 
+def time_regularize(df: pd.DataFrame, cols: str | Sequence[str], dt: float) -> pd.DataFrame:
+    '''
+    df should have a "time" column which is a pandas datetime. cols are the columns to interpolate.
+
+    Returns: dataframe with columns time, date, ...cols
+    '''
+
+    if isinstance(cols, str):
+        cols = (cols, )
+
+    start = df['time'].min()
+    range = (df['time'].max() - start).days
+    t = np.arange(0, range, dt)
+
+    out_cols = {'time': t}
+    in_t = df['time'].apply(lambda time: (time - start).days)
+    for col in cols:
+        out_cols[col] = np.interp(t, in_t, df[col])
+
+    df_interp = pd.DataFrame(out_cols)
+    df_interp['time'] = df_interp['time'].apply(lambda time: start + pd.Timedelta(days=time))
+    df_interp['date'] = df_interp['time'].apply(lambda time: time.date().isoformat())
+
+    return df_interp
+
+
 class WaveletResult(ABC):
     @abstractmethod
     def dt(self) -> float:
@@ -94,10 +120,10 @@ class WaveletResult(ABC):
 class CWT(WaveletResult):
     _dt: float
     _dates: pd.Series
-    _wave: np.ndarray # shape: nf, nt
-    _scales: np.ndarray # shape: nf
-    _freqs: np.ndarray # shape: nf
-    _coi: np.ndarray # shape: nt
+    _wave: np.ndarray # shape: J, N
+    _scales: np.ndarray # shape: J
+    _freqs: np.ndarray # shape: J
+    _coi: np.ndarray # shape: N
     _fft: np.ndarray
     _fftfreqs: np.ndarray
 
@@ -140,11 +166,11 @@ class CWT(WaveletResult):
 class WCT(WaveletResult):
     _dt: float
     _dates: pd.Series
-    _wct: np.ndarray
-    _awct: np.ndarray
-    _coi: np.ndarray
-    _freq: np.ndarray
-    _sig: np.ndarray
+    _wct: np.ndarray # shape: J, N
+    _awct: np.ndarray # shape: J, N
+    _coi: np.ndarray # shape: N
+    _freq: np.ndarray # shape: J
+    _sig: np.ndarray # shape: J
 
     def __init__(self, dates: pd.Series, y1: np.ndarray, y2: np.ndarray, dt: float, *args, **kwargs) -> None:
         self._dt = dt

@@ -9,6 +9,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from shoreshop3_analysis import wavelet
+
 
 shoreshop_path = Path.home() / 'abmurraylab/shoreshop3'
 input_coastsat_path = shoreshop_path / 'inputdata/NC_CoastSat_smoothed.zip'
@@ -264,3 +266,67 @@ create table if not exists data(
                 join transect on data.transect_id = transect.id
             where model.name = :model and transect.name = :transect
         ''', self._conn, params={'model': model, 'transect': transect})
+
+
+class MultiProfileWCT:
+    def __init__(self, scratchdir: str | None = None) -> None:
+        self._scratchdir = scratchdir
+        fname = 'models-nc-1980-2023-cwt.sqlite'
+        self._path = Path('/work/sln33') / fname
+
+        if scratchdir:
+            self._tmp_path = Path(scratchdir) / fname
+        else:
+            self._tmp_path = self._path
+
+        self._conn = sqlite3.connect(self._path)
+
+        self._conn.execute('pragma foreign_keys = on')
+        self._conn.execute('pragma cache_size = -4000000')
+        self._conn.execute('pragma mmap_size = 4000000000')
+        self._conn.execute('pragma page_size = 65536')
+
+        self._conn.executescript('''
+create table if not exists model(
+    id integer primary key,
+    name text unique not null
+);
+
+create table if not exists transect(
+    id integer primary key,
+    name text unique not null
+);
+
+create table if not exists metadata(
+    id integer primary key,
+    model_id integer references model not null,
+    transect_id integer references transect not null,
+    n integer not null,
+    j integer not null,
+    dt real not null,
+    dates text not null, -- JSON array of iso8601 dates
+    freq blob, -- size J*8
+    sig blob, -- size J*8
+    coi blob, -- size N*8
+    unique(model_id, transect_id)
+);
+
+-- sqlite can't jump into the middle of a large row without reading everything in front,
+-- so storing the large blobs in their own tables ensures access remains fast.
+
+create table if not exists wct(
+    id integer primary key references metadata on delete cascade,
+    wct blob -- size N*J*8
+);
+
+create table if not exists awct(
+    id integer primary key references metadata on delete cascade,
+    awct blob -- size N*J*8
+);
+''')
+
+    def compute(self, nthreads: int = 0) -> None:
+        pass
+
+    def get_wct(self, model: str, transect: str) -> wavelet.WCT:
+        pass
