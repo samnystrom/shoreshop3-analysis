@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import time
 
 import numpy as np
 import pandas as pd
@@ -103,7 +104,10 @@ class CWT(WaveletResult):
     def __init__(self, dates: pd.Series, signal: np.ndarray, dt: float, *args, **kwargs) -> None:
         self._dt = dt
         self._dates = dates
+        start = time.perf_counter_ns()
         self._wave, self._scales, self._freqs, self._coi, self._fft, self._fftfreqs = pycwt.cwt(signal, dt, *args, **kwargs)
+        elapsed = time.perf_counter_ns() - start
+        print(f'CWT took {elapsed/1e6:.3f} ms')
 
     @override
     def dt(self) -> float:
