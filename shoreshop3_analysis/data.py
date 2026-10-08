@@ -211,7 +211,7 @@ class MultiProfileModels:
         fname = 'models-nc-1980-2023.sqlite'
         self._perm_path = Path(__file__).parent.parent / fname
         if scratchdir:
-            self._active_path = Path(scratchdir) / fname
+            self._active_path = Path(self._scratchdir) / fname
         else:
             self._active_path = self._perm_path
 
@@ -303,11 +303,14 @@ create table if not exists data(
 
     def get_transects(self, model: str) -> set[str]:
         rows = self._conn.execute('''
-            select distinct transect.name
-            from data
-                join model on data.model_id = model.id
-                join transect on data.transect_id = transect.id
-            where model.name = ?
+            select transect.name
+            from transect
+            where exists(
+                select 1
+                from data
+                    join model on data.model_id = model.id
+                where model.name = ? and transect_id = transect.id
+            )
         ''', (model, )).fetchall()
         return {transect for transect, in rows}
 

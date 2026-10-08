@@ -13,7 +13,7 @@ from shoreshop3_analysis import data, worker, wavelet
 
 class MultiProfileWCT:
     def __init__(self) -> None:
-        self._path = data.scratchdir / 'models-nc-1980-2023-cwt.sqlite'
+        self._path = data.workdir / 'models-nc-1980-2023-cwt.sqlite'
 
         self._conn = sqlite3.connect(self._path)
 
@@ -80,11 +80,11 @@ create table if not exists awct(
             init_time = time.perf_counter() - start
             print(f'Initialization finished in {format_duration(init_time)}')
 
-        for transect in list(models.get_all_transects()):
-            with self._conn:
-                self._conn.execute('''
-                    insert or ignore into transect (name) values (?)
-                ''', (transect, ))
+        params = [(transect, ) for transect in list(models.get_all_transects())]
+        with self._conn:
+            self._conn.executemany('''
+                insert or ignore into transect (name) values (?)
+            ''', params)
 
         with futures.ProcessPoolExecutor(
             # process_cpu_count is python 3.13
@@ -96,27 +96,27 @@ create table if not exists awct(
             if progress:
                 start = time.perf_counter()
 
+            rows = self._conn.execute('''
+                select model.name, transect.name
+                from metadata
+                    join model on metadata.model_id = model.id
+                    join transect on metadata.transect_id = transect.id
+            ''').fetchall()
+            completed_pairs = set(rows)
+
             fs = []
             for model in list(models.get_models()):
                 #if model != 'CCOST':
                 #    continue
-    
                 with self._conn:
                     self._conn.execute('''
                         insert or ignore into model (name) values (?)
                     ''', (model, ))
-    
+
                 for transect in list(models.get_transects(model)):
                     #if not transect.startswith('0001'):
                     #    continue
-
-                    if self._conn.execute('''
-                        select 1
-                        from metadata
-                            join model on metadata.model_id = model.id
-                            join transect on metadata.transect_id = transect.id
-                        where model.name = ? and transect.name = ?
-                    ''', (model, transect)).fetchone() is None:
+                    if (model, transect) not in completed_pairs:
                         fs.append(executor.submit(worker.run, model, transect))
 
             for i, future in enumerate(futures.as_completed(fs)):
