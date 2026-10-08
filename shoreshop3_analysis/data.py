@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pycwt
 
 from shoreshop3_analysis import wavelet
 
@@ -17,6 +18,8 @@ input_coastsat_path = shoreshop_path / 'inputdata/NC_CoastSat_smoothed.zip'
 input_frf_path = shoreshop_path / 'inputdata/hindcast_1980_2023/shorelines_and_profiles/FRF_Profiles.zip'
 submissions_path = shoreshop_path / 'submissions/UserSubmissionsCleaned'
 
+workdir = Path('/work/sln33')
+scratchdir = Path('/scratch')
 
 duck_1980_2023_paths = {
     'CEERD-CHL-Devoe': os.path.join(submissions_path, 'CEERD-CHL-Devoe/mipDuck_1980-2023_waves_simplified_ShoreFor_BruunSLR_ERDCCHL_SRD.csv'),
@@ -90,39 +93,74 @@ nc_1980_2023_paths = {
 }
 
 
+class CoastsatData:
+    def __init__(self) -> None:
+        self._path = scratchdir / 'coastsat.sqlite'
+        self._conn = sqlite3.connect(self._path)
 
-def load_coastsat_all() -> pd.DataFrame:
-    '''
-    returns df with columns date, x, transect
-    '''
+        # the worker processes use this class, so avoid writing if the db is already initialized
+        if self._conn.execute('select 1 from sqlite_schema limit 1').fetchone() is None:
+            self._conn.executescript('''
+create table transect(
+    id integer primary key,
+    name text unique not null
+);
 
-    dfs = []
+create table data(
+    transect_id integer references transect not null,
+    datetime real not null, -- julianday
+    x real,
+    primary key(transect_id, datetime)
+) without rowid;
+''')
 
-    with zipfile.ZipFile(input_coastsat_path, 'r') as zf:
-        for info in zf.infolist():
-            if not info.filename.startswith('NC_CoastSat_smoothed/usa_NC_'):
-                continue
-            transect_id = info.filename.removeprefix('NC_CoastSat_smoothed/usa_NC_').removesuffix('.csv')
+    def populate(self) -> None:
+        with zipfile.ZipFile(input_coastsat_path, 'r') as zf:
+            for info in zf.infolist():
+                if not info.filename.startswith('NC_CoastSat_smoothed/usa_NC_'):
+                    continue
 
-            with zf.open(info.filename) as file:
-                df = pd.read_csv(file, names=('date', 'x'))
-                df['date'] = pd.to_datetime(df['date'])
-                df['transect'] = transect_id
-                dfs.append(df)
+                transect = info.filename.removeprefix('NC_CoastSat_smoothed/usa_NC_').removesuffix('.csv')
 
-    return pd.concat(dfs)
+                if self._conn.execute('''
+                    select 1 from transect where name = ?
+                ''', (transect, )).fetchone() is not None:
+                    continue
 
+                with self._conn:
+                    transect_id = self._conn.execute('''
+                        insert into transect (name) values (?)
+                    ''', (transect, )).lastrowid
+    
+                    with zf.open(info.filename, 'r') as file:
+                        rows = []
+                        for line in file:
+                            date, x = line.decode('utf-8').rstrip().split(',')
+                            rows.append((transect_id, date, float(x)))
+                    self._conn.executemany('''
+                        insert into data (transect_id, datetime, x) values (?, julianday(?), ?)
+                    ''', rows)
 
-def load_coastsat_single(transect_id: str) -> pd.DataFrame:
-    '''
-    returns df with columns date, x
-    '''
+    def get_all(self) -> pd.DataFrame:
+        df = pd.read_sql_query('''
+            select transect.name as transect, datetime(datetime) as time, x
+            from data
+                join transect on data.transect_id = transect.id
+            order by transect, time
+        ''', self._conn)
+        df['time'] = pd.to_datetime(df['time'])
+        return df
 
-    with zipfile.ZipFile(input_coastsat_path, 'r') as zf:
-        with zf.open(f'NC_CoastSat_smoothed/usa_NC_{transect_id}.csv') as file:
-            df = pd.read_csv(file, names=('date', 'x'))
-            df['date'] = pd.to_datetime(df['date'])
-            return df
+    def get_single(self, transect_id: str) -> pd.DataFrame:
+        df = pd.read_sql_query('''
+            select datetime(datetime) as time, x
+            from data
+                join transect on data.transect_id = transect.id
+            where transect.name = :transect
+            order by time
+        ''', self._conn, params={'transect': transect_id})
+        df['time'] = pd.to_datetime(df['time'])
+        return df
 
 
 def load_frf_single(transect_id: str) -> pd.DataFrame:
@@ -177,7 +215,7 @@ class MultiProfileModels:
         else:
             self._active_path = self._perm_path
 
-        if self._perm_path.exists() and self._scratchdir:
+        if self._perm_path.exists() and self._scratchdir and not self._active_path.exists():
             subprocess.run(['cp', self._perm_path, self._active_path])
 
         self._conn = sqlite3.connect(self._active_path)
@@ -185,8 +223,10 @@ class MultiProfileModels:
         self._conn.execute('pragma foreign_keys = on')
         self._conn.execute('pragma cache_size = -4000000')
         self._conn.execute('pragma mmap_size = 4000000000')
-        
-        self._conn.executescript('''
+
+        # since this class is used by the process pool, it must avoid writes if the db is already initialized
+        if self._conn.execute('select 1 from sqlite_schema limit 1').fetchone() is None:
+            self._conn.executescript('''
 create table if not exists model(
     id integer primary key,
     name text unique not null
@@ -255,7 +295,13 @@ create table if not exists data(
         if updated and self._scratchdir:
             subprocess.run(['cp', self._active_path, self._perm_path])
 
-    def load_model_transect_data(self, model: str, transect: str) -> pd.DataFrame:
+    def get_models(self) -> set[str]:
+        return {model for model, in self._conn.execute('select name from model').fetchall()}
+
+    def get_transects(self) -> set[str]:
+        return {transect for transect, in self._conn.execute('select name from transect').fetchall()}
+
+    def get_model_transect_data(self, model: str, transect: str) -> pd.DataFrame:
         '''
         Returns: dataframe with columns model, transect, date, x
         '''
@@ -265,68 +311,5 @@ create table if not exists data(
                 join model on data.model_id = model.id
                 join transect on data.transect_id = transect.id
             where model.name = :model and transect.name = :transect
+            order by date
         ''', self._conn, params={'model': model, 'transect': transect})
-
-
-class MultiProfileWCT:
-    def __init__(self, scratchdir: str | None = None) -> None:
-        self._scratchdir = scratchdir
-        fname = 'models-nc-1980-2023-cwt.sqlite'
-        self._path = Path('/work/sln33') / fname
-
-        if scratchdir:
-            self._tmp_path = Path(scratchdir) / fname
-        else:
-            self._tmp_path = self._path
-
-        self._conn = sqlite3.connect(self._path)
-
-        self._conn.execute('pragma foreign_keys = on')
-        self._conn.execute('pragma cache_size = -4000000')
-        self._conn.execute('pragma mmap_size = 4000000000')
-        self._conn.execute('pragma page_size = 65536')
-
-        self._conn.executescript('''
-create table if not exists model(
-    id integer primary key,
-    name text unique not null
-);
-
-create table if not exists transect(
-    id integer primary key,
-    name text unique not null
-);
-
-create table if not exists metadata(
-    id integer primary key,
-    model_id integer references model not null,
-    transect_id integer references transect not null,
-    n integer not null,
-    j integer not null,
-    dt real not null,
-    dates text not null, -- JSON array of iso8601 dates
-    freq blob, -- size J*8
-    sig blob, -- size J*8
-    coi blob, -- size N*8
-    unique(model_id, transect_id)
-);
-
--- sqlite can't jump into the middle of a large row without reading everything in front,
--- so storing the large blobs in their own tables ensures access remains fast.
-
-create table if not exists wct(
-    id integer primary key references metadata on delete cascade,
-    wct blob -- size N*J*8
-);
-
-create table if not exists awct(
-    id integer primary key references metadata on delete cascade,
-    awct blob -- size N*J*8
-);
-''')
-
-    def compute(self, nthreads: int = 0) -> None:
-        pass
-
-    def get_wct(self, model: str, transect: str) -> wavelet.WCT:
-        pass

@@ -1,5 +1,6 @@
-from abc import ABC, abstractmethod
 import time
+from abc import ABC, abstractmethod
+from typing import Sequence
 
 import numpy as np
 import pandas as pd
