@@ -298,8 +298,18 @@ create table if not exists data(
     def get_models(self) -> set[str]:
         return {model for model, in self._conn.execute('select name from model').fetchall()}
 
-    def get_transects(self) -> set[str]:
+    def get_all_transects(self) -> set[str]:
         return {transect for transect, in self._conn.execute('select name from transect').fetchall()}
+
+    def get_transects(self, model: str) -> set[str]:
+        rows = self._conn.execute('''
+            select distinct transect.name
+            from data
+                join model on data.model_id = model.id
+                join transect on data.transect_id = transect.id
+            where model.name = ?
+        ''', (model, )).fetchall()
+        return {transect for transect, in rows}
 
     def get_model_transect_data(self, model: str, transect: str) -> pd.DataFrame:
         '''

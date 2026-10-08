@@ -3,7 +3,7 @@ import os
 import sys
 import sqlite3
 import time
-from concurrent.futures import ProcessPoolExecutor
+from concurrent import futures
 
 import numpy as np
 import pandas as pd
@@ -80,35 +80,35 @@ create table if not exists awct(
             init_time = time.perf_counter() - start
             print(f'Initialization finished in {format_duration(init_time)}')
 
-        for transect in list(models.get_transects()):
+        for transect in list(models.get_all_transects()):
             with self._conn:
                 self._conn.execute('''
                     insert or ignore into transect (name) values (?)
                 ''', (transect, ))
 
-        with ProcessPoolExecutor(
+        with futures.ProcessPoolExecutor(
             # process_cpu_count is python 3.13
             # max_workers=os.process_cpu_count()-1,
-            max_workers=15,
+            max_workers=31,
             initializer=worker.init,
         ) as executor:
 
             if progress:
                 start = time.perf_counter()
 
-            futures = []
+            fs = []
             for model in list(models.get_models()):
-                if model != 'CCOST':
-                    continue
+                #if model != 'CCOST':
+                #    continue
     
                 with self._conn:
                     self._conn.execute('''
                         insert or ignore into model (name) values (?)
                     ''', (model, ))
     
-                for transect in list(models.get_transects()):
-                    if not transect.startswith('0001'):
-                        continue
+                for transect in list(models.get_transects(model)):
+                    #if not transect.startswith('0001'):
+                    #    continue
 
                     if self._conn.execute('''
                         select 1
@@ -117,15 +117,15 @@ create table if not exists awct(
                             join transect on metadata.transect_id = transect.id
                         where model.name = ? and transect.name = ?
                     ''', (model, transect)).fetchone() is None:
-                        futures.append(executor.submit(worker.run, model, transect))
+                        fs.append(executor.submit(worker.run, model, transect))
 
-            for i, future in enumerate(futures):
+            for i, future in enumerate(futures.as_completed(fs)):
                 if progress:
                     elapsed = time.perf_counter() - start
-                    predicted_time = elapsed / (i+1) * len(futures)
+                    predicted_time = elapsed / (i+1) * len(fs)
                     elapsed_s = format_duration(elapsed)
                     predicted_s = format_duration(predicted_time)
-                    print(f'Processing result {i+1}/{len(futures)}: {elapsed_s}/{predicted_s}', end='\n', flush=True)
+                    print(f'\rProcessing result {i+1}/{len(fs)}: {elapsed_s}/{predicted_s}', end='', flush=True)
                     sys.stdout.flush()
 
                 result = future.result()
