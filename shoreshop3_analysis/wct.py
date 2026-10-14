@@ -89,7 +89,7 @@ create table if not exists awct(
         with futures.ProcessPoolExecutor(
             # process_cpu_count is python 3.13
             # max_workers=os.process_cpu_count()-1,
-            max_workers=31,
+            max_workers=39,
             initializer=worker.init,
         ) as executor:
 
@@ -132,15 +132,15 @@ create table if not exists awct(
                 if result is None:
                     continue # transect is missing from this model or WCT failed
                 model, transect, dt, dates, wct, awct, coi, freq, sig = result
-                dates_json = json.dumps(dates)
                 j, n = wct.shape
-                wct = np.ascontiguousarray(wct, dtype=np.float64).data
-                awct = np.ascontiguousarray(awct, dtype=np.float64).data
-                coi = np.ascontiguousarray(coi, dtype=np.float64).data
-                freq = np.ascontiguousarray(freq, dtype=np.float64).data
-                sig = np.ascontiguousarray(sig, dtype=np.float64).data
+                dtype = np.dtype('<d') # little-endian float64
+                wct = np.ascontiguousarray(wct, dtype=dtype).data
+                awct = np.ascontiguousarray(awct, dtype=dtype).data
+                coi = np.ascontiguousarray(coi, dtype=dtype).data
+                freq = np.ascontiguousarray(freq, dtype=dtype).data
+                sig = np.ascontiguousarray(sig, dtype=dtype).data
                 with self._conn:
-                    meta_rowid = self._conn.execute('''
+                    rowid = self._conn.execute('''
                         insert into metadata
                             (model_id, transect_id, n, j, dt, dates, freq, sig, coi)
                         values (
@@ -160,32 +160,83 @@ create table if not exists awct(
                         'n': n,
                         'j': j,
                         'dt': dt,
-                        'dates': dates_json,
+                        'dates': dates,
                     }).lastrowid
     
-                    with self._conn.blobopen('metadata', 'freq', meta_rowid) as blob:
+                    with self._conn.blobopen('metadata', 'freq', rowid) as blob:
                         blob.write(freq)
-                    with self._conn.blobopen('metadata', 'sig', meta_rowid) as blob:
+                    with self._conn.blobopen('metadata', 'sig', rowid) as blob:
                         blob.write(sig)
-                    with self._conn.blobopen('metadata', 'coi', meta_rowid) as blob:
+                    with self._conn.blobopen('metadata', 'coi', rowid) as blob:
                         blob.write(coi)
     
-                    wct_rowid = self._conn.execute('''
+                    self._conn.execute('''
                         insert into wct (id, wct) values (?, zeroblob(?))
-                    ''', (meta_rowid, n*j*8)).lastrowid
-                    with self._conn.blobopen('wct', 'wct', wct_rowid) as blob:
+                    ''', (rowid, n*j*8))
+                    with self._conn.blobopen('wct', 'wct', rowid) as blob:
                         blob.write(wct)
     
-                    awct_rowid = self._conn.execute('''
+                    self._conn.execute('''
                         insert into awct (id, awct) values (?, zeroblob(?))
-                    ''', (meta_rowid, n*j*8)).lastrowid
-                    with self._conn.blobopen('awct', 'awct', awct_rowid) as blob:
+                    ''', (rowid, n*j*8))
+                    with self._conn.blobopen('awct', 'awct', rowid) as blob:
                         blob.write(awct)
 
         if progress:
             elapsed = time.perf_counter() - start + init_time
             print(f'\nFinished in {format_duration(elapsed)}')
 
+    def get_models(self) -> set[str]:
+        return {name for name, in self._conn.execute('select name from model').fetchall()}
+
+    def get_transects(self, model: str) -> set[str]:
+        rows = self._conn.execute('''
+            select transect.name
+            from metadata
+                join model on metadata.model_id = model.id
+                join transect on metadata.transect_id = transect.id
+            where model.name = ?
+        ''', (model, )).fetchall()
+        return {name for name, in rows}
+
+    def get_all_transects(self) -> set[str]:
+        return {name for name, in self._conn.execute('select name from transect').fetchall()}
+
     def get_wct(self, model: str, transect: str) -> wavelet.WCT:
-        pass
+        rowid, n, j, dt, dates = self._conn.execute('''
+            select metadata.id, n, j, dt, dates
+            from metadata
+                join model on metadata.model_id = model.id
+                join transect on metadata.transect_id = transect.id
+            where model.name = ? and transect.name = ?
+        ''', (model, transect)).fetchone()
+
+        dates = pd.Series(json.loads(dates))
+
+        dtype = np.dtype('<d') # little-endian float64
+        with self._conn.blobopen('metadata', 'freq', rowid) as blob:
+            freq = np.frombuffer(blob.read(), dtype=dtype, count=j)
+        with self._conn.blobopen('metadata', 'sig', rowid) as blob:
+            sig = np.frombuffer(blob.read(), dtype=dtype, count=j)
+        with self._conn.blobopen('metadata', 'coi', rowid) as blob:
+            coi = np.frombuffer(blob.read(), dtype=dtype, count=n)
+
+        with self._conn.blobopen('wct', 'wct', rowid) as blob:
+            wct = np.frombuffer(blob.read(), dtype=dtype, count=j*n).reshape((j, n))
+        with self._conn.blobopen('awct', 'awct', rowid) as blob:
+            awct = np.frombuffer(blob.read(), dtype=dtype, count=j*n).reshape((j, n))
+
+        if dtype.byteorder != '=':
+            freq.byteswap(inplace=True)
+            sig.byteswap(inplace=True)
+            coi.byteswap(inplace=True)
+            wct.byteswap(inplace=True)
+            awct.byteswap(inplace=True)
+            freq.dtype = np.float64
+            sig.dtype = np.float64
+            coi.dtype = np.float64
+            wct.dtype = np.float64
+            awct.dtype = np.float64
+
+        return wavelet.WCT(dt, dates, wct, awct, coi, freq, sig)
 

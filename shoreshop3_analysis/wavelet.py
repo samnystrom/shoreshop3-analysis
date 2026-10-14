@@ -1,6 +1,6 @@
 import time
 from abc import ABC, abstractmethod
-from typing import Sequence
+from typing import Sequence, Self
 
 import numpy as np
 import pandas as pd
@@ -173,10 +173,18 @@ class WCT(WaveletResult):
     _freq: np.ndarray # shape: J
     _sig: np.ndarray # shape: J
 
-    def __init__(self, dates: pd.Series, y1: np.ndarray, y2: np.ndarray, dt: float, *args, **kwargs) -> None:
+    @classmethod
+    def fromdata(cls, dates: pd.Series, y1: np.ndarray, y2: np.ndarray, dt: float, *args, **kwargs) -> Self:
+        return cls(dt, dates, *pycwt.wct(y1, y2, dt, *args, **kwargs))
+
+    def __init__(self, dt: float, dates: pd.Series, wct: np.ndarray, awct: np.ndarray, coi: np.ndarray, freq: np.ndarray, sig: np.ndarray) -> None:
         self._dt = dt
         self._dates = dates
-        self._wct, self._awct, self._coi, self._freq, self._sig = pycwt.wct(y1, y2, dt, *args, **kwargs)
+        self._wct = wct
+        self._awct = awct
+        self._coi = coi
+        self._freq = freq
+        self._sig = sig
 
     @override
     def dt(self) -> float:

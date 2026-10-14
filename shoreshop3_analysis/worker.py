@@ -1,3 +1,4 @@
+import json
 import time
 import numpy as np
 import pandas as pd
@@ -58,4 +59,6 @@ def run(model: str, transect: str) -> tuple[float, list[str], np.ndarray, np.nda
     #elapsed = time.perf_counter() - start
     #print(f'{model} {transect} took {elapsed:.3f} s: {len(joined)}')
 
-    return (model, transect, dt, list(joined['date'].values), wct, awct, coi, freq, sig)
+    dates = json.dumps(list(joined['date'].values))
+
+    return (model, transect, dt, dates, wct, awct, coi, freq, sig)
