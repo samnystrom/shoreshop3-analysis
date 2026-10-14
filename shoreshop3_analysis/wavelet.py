@@ -40,6 +40,21 @@ def time_regularize(df: pd.DataFrame, cols: str | Sequence[str], dt: float) -> p
     return df_interp
 
 
+def format_period(period: int | float) -> str:
+    period = int(period)
+    if period > 365:
+        years = round(period / 365)
+        return f'{years} year' + ('s' if years > 1 else '')
+    elif period > 30:
+        months = round(period / 30)
+        return f'{months} month' + ('s' if months > 1 else '')
+    elif period > 7:
+        weeks = round(period / 7)
+        return f'{weeks} week' + ('s' if weeks > 1 else '')
+    else:
+        return f'{period} day' + ('s' if period > 1 else '')
+
+
 class WaveletResult(ABC):
     @abstractmethod
     def dt(self) -> float:
@@ -93,15 +108,7 @@ class WaveletResult(ABC):
         ax.xaxis.set_major_locator(mpl.ticker.MultipleLocator((365*5 + 2) / self.dt()))
 
         def y_to_period(y, pos):
-            y = int(2**y)
-            if y > 365:
-                years = round(y/365)
-                return f'{years} year' + ('s' if years > 1 else '')
-            elif y > 30:
-                months = round(y/30)
-                return f'{months} month' + ('s' if months > 1 else '')
-            else:
-                return f'{y} day' + ('s' if y > 1 else '')
+            return format_period(int(2**y))
         ax.yaxis.set_major_formatter(mpl.ticker.FuncFormatter(y_to_period))
     
         fig.colorbar(contourset, label=self.colorbar_label())

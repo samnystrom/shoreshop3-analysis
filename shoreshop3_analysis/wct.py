@@ -89,7 +89,7 @@ create table if not exists awct(
         with futures.ProcessPoolExecutor(
             # process_cpu_count is python 3.13
             # max_workers=os.process_cpu_count()-1,
-            max_workers=39,
+            max_workers=95,
             initializer=worker.init,
         ) as executor:
 
@@ -106,16 +106,12 @@ create table if not exists awct(
 
             fs = []
             for model in list(models.get_models()):
-                #if model != 'CCOST':
-                #    continue
                 with self._conn:
                     self._conn.execute('''
                         insert or ignore into model (name) values (?)
                     ''', (model, ))
 
                 for transect in list(models.get_transects(model)):
-                    #if not transect.startswith('0001'):
-                    #    continue
                     if (model, transect) not in completed_pairs:
                         fs.append(executor.submit(worker.run, model, transect))
 

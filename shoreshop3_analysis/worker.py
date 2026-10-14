@@ -55,7 +55,7 @@ def run(model: str, transect: str) -> tuple[float, list[str], np.ndarray, np.nda
         print(e)
         return None
 
-    if len(w._wct.flatten()[~np.isnan(w._wct.flatten())]) == 0:
+    if np.isnan(wct).any():
         print(f'Warning: NaN WCT result for model={model} transect={transect}', file=sys.stderr)
 
     sig = np.zeros(freq.shape[0])

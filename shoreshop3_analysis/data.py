@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import geopandas as gp
 import pycwt
 
 from shoreshop3_analysis import wavelet
@@ -18,6 +19,7 @@ scratchdir = Path('/scratch')
 
 shoreshop_path = Path.home() / 'abmurraylab/shoreshop3'
 input_coastsat_path = shoreshop_path / 'inputdata/NC_CoastSat_smoothed.zip'
+input_profiles_path = shoreshop_path / 'inputdata/hindcast_1980_2023/shorelines_and_profiles/NC_transects.geojson'
 input_frf_path = shoreshop_path / 'inputdata/hindcast_1980_2023/shorelines_and_profiles/FRF_Profiles.zip'
 submissions_path = shoreshop_path / 'submissions/UserSubmissionsCleaned'
 
@@ -86,6 +88,11 @@ nc_1980_2023_paths = {
     'mtraboulsi689': submissions_path / 'mtraboulsi689/mipNC_1980-2023_waves_simplified-MohammadTraboulsi.csv',
     'UNSW-WRL-Mao': submissions_path / 'UNSW-WRL-Mao/shoreshop3NC/mipNC_1980-2023_GraphShore.csv',
 }
+
+
+def load_profiles() -> gp.GeoDataFrame:
+    # UTM zone 18N
+    return gp.read_file(input_profiles_path).to_crs(epsg=26918)
 
 
 class CoastsatData:
