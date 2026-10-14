@@ -1,5 +1,6 @@
 import json
 import time
+import sys
 import numpy as np
 import pandas as pd
 import pycwt
@@ -30,7 +31,7 @@ def run(model: str, transect: str) -> tuple[float, list[str], np.ndarray, np.nda
     model_data = _models.get_model_transect_data(model, transect).dropna()
     if len(model_data) == 0: # this transect isn't present for the model
         return None
-    joined = obs_interp.merge(model_data, on='date', how='left', suffixes=('_obs', '_model'))
+    joined = obs_interp.merge(model_data, on='date', how='inner', suffixes=('_obs', '_model'))
 
     try:
         wct, awct, coi, freq, sig = pycwt.wct(
@@ -53,6 +54,9 @@ def run(model: str, transect: str) -> tuple[float, list[str], np.ndarray, np.nda
             f.write(b'\0')
         print(e)
         return None
+
+    if len(w._wct.flatten()[~np.isnan(w._wct.flatten())]) == 0:
+        print(f'Warning: NaN WCT result for model={model} transect={transect}', file=sys.stderr)
 
     sig = np.zeros(freq.shape[0])
 
