@@ -80,8 +80,20 @@ class WaveletResult(ABC):
     def colorbar_label(self) -> str:
         pass
 
-    def global_power(self) -> np.ndarray:
-        return np.mean(self.power(), axis=1)
+    def global_power(self, dropnan: bool = False) -> np.ndarray:
+        # Mask out the COI by setting all values within it to zero and adjusting the mean calculation accordingly
+        period = self.period()
+        coi = self.coi()
+        mask = np.tile(period, len(coi)).reshape((len(coi), len(period))).T >= coi
+        power = self.power().copy()
+        power[mask] = 0
+        counts = np.count_nonzero(~mask, axis=1)
+        # ignore divide by zero, results in nan for scales with no valid data, which is desired behavior
+        with np.errstate(divide='ignore'):
+            mean = np.sum(power, axis=1) / counts
+        if dropnan:
+            mean = mean[~np.isnan(mean)]
+        return mean
 
     def plot(self, title: str | None = None) -> mpl.figure.Figure:
         power = self.power()
