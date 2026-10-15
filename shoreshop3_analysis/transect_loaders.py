@@ -63,9 +63,9 @@ class ModelDataLoader(TransectLoader):
     def get_timeseries(self, transect: str) -> pd.DataFrame | None:
         data = self._models.get_model_transect_data(self._model, transect)
         dropped = data.dropna()
-        if len(dropped) / len(data) < 0.25:
+        if len(dropped) / len(data) < 0.25 or len(dropped) == 0:
             return None
-        return data.drop(columns=['model', 'transect'])
+        return dropped.drop(columns=['model', 'transect'])
 
     def get_wavelet(self, transect: str) -> wavelet.WaveletResult | None:
         df = self.get_timeseries(transect)

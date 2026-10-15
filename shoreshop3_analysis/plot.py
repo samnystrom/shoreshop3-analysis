@@ -27,9 +27,6 @@ def plot_multi_global(
     profiles = profiles.drop(columns=['site_id', 'cil', 'ciu', 'trend', 'beach_slope', 'n_points', 'n_points_nonan'])
     profiles = profiles.set_index('id')
 
-    all_transects = loader.get_transects()
-    profiles = profiles[profiles.index.isin(all_transects)]
-
     easting = profiles.geometry.apply(lambda geom: geom.coords[0][0])
     northing = profiles.geometry.apply(lambda geom: geom.coords[0][1])
 
@@ -46,6 +43,9 @@ def plot_multi_global(
     ylim = (profiles['northing'].min(), profiles['northing'].max())
 
     selected_profiles = profiles.copy().reset_index(names='id').sort_values('northing')
+    all_transects = loader.get_transects()
+    selected_profiles = selected_profiles[selected_profiles['id'].isin(all_transects)]
+
     selected_profiles['group'] = (
         (selected_profiles['northing'] - ylim[0]) / (ylim[1] - ylim[0]) * (n_transects - 1)
     ).astype(int)
@@ -74,6 +74,9 @@ def plot_multi_global(
         if w is None:
             continue
         power = w.global_power(dropnan=True)
+        if len(power) == 0:
+            print('empty', transect)
+            continue
         min_power = min(min_power, np.min(power))
         max_power = max(max_power, np.max(power))
         period = w.period()[:len(power)]
