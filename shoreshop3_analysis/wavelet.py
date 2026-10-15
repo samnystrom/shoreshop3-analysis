@@ -18,7 +18,7 @@ def time_regularize(df: pd.DataFrame, cols: str | Sequence[str], dt: float) -> p
     '''
     df should have a "time" column which is a pandas datetime. cols are the columns to interpolate.
 
-    Returns: dataframe with columns time, date, ...cols
+    Returns: dataframe with columns date, ...cols
     '''
 
     if isinstance(cols, str):
@@ -37,7 +37,9 @@ def time_regularize(df: pd.DataFrame, cols: str | Sequence[str], dt: float) -> p
     df_interp['time'] = df_interp['time'].apply(lambda time: start + pd.Timedelta(days=time))
     df_interp['date'] = df_interp['time'].apply(lambda time: time.date().isoformat())
 
-    return df_interp
+    # time is no longer meaningful since we sampled on days
+
+    return df_interp.drop(columns='time')
 
 
 def format_period(period: int | float) -> str:
@@ -101,11 +103,11 @@ class WaveletResult(ABC):
         period = self.period()
         # global_power = out.global_power()
         t = np.arange(0, len(self.coi()), 1)
-    
+
         fig, ax = plt.subplots()
-    
+
         fig.tight_layout()
-    
+
         contourset = ax.contourf(t, np.log2(period), power, levels=64, extend='both', cmap='Blues')
         ax.fill(
             np.concatenate([t, t[-1:] + self.dt(), t[-1:] + self.dt(), t[:1] - self.dt(), t[:1] - self.dt()]),
@@ -122,18 +124,18 @@ class WaveletResult(ABC):
         def y_to_period(y, pos):
             return format_period(int(2**y))
         ax.yaxis.set_major_formatter(mpl.ticker.FuncFormatter(y_to_period))
-    
+
         fig.colorbar(contourset, label=self.colorbar_label())
-    
+
         ax.set_xlim(np.min(t), np.max(t))
         ax.set_ylim(np.min(np.log2(period)), np.max(np.log2(period)))
-    
+
         ax.set_ylabel('Period')
         if title:
             ax.set_title(title)
-    
+
         fig.set_size_inches(8, 4)
-    
+
         return fig
 
 
@@ -153,7 +155,6 @@ class CWT(WaveletResult):
         start = time.perf_counter_ns()
         self._wave, self._scales, self._freqs, self._coi, self._fft, self._fftfreqs = pycwt.cwt(signal, dt, *args, **kwargs)
         elapsed = time.perf_counter_ns() - start
-        print(f'CWT took {elapsed/1e6:.3f} ms')
 
     @override
     def dt(self) -> float:
@@ -180,7 +181,7 @@ class CWT(WaveletResult):
 
     @override
     def colorbar_label(self) -> str:
-        return 'Wavelet power (log2)'
+        return 'Wavelet power ($\log_2$)'
 
 
 class WCT(WaveletResult):
@@ -230,5 +231,5 @@ class WCT(WaveletResult):
 
     @override
     def colorbar_label(self) -> str:
-        return 'Wavelet coherence $R^2$'
+        return 'Coherence ($R^2$)'
 

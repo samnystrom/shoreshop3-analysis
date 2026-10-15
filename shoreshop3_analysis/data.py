@@ -143,6 +143,9 @@ create table data(
                         insert into data (transect_id, datetime, x) values (?, julianday(?), ?)
                     ''', rows)
 
+    def get_transects(self) -> list[str]:
+        return [name for name, in self._conn.execute('select name from transect').fetchall()]
+
     def get_all(self) -> pd.DataFrame:
         df = pd.read_sql_query('''
             select transect.name as transect, datetime(datetime) as time, x
