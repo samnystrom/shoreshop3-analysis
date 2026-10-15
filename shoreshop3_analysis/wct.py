@@ -105,13 +105,13 @@ create table if not exists awct(
             completed_pairs = set(rows)
 
             fs = []
-            for model in list(models.get_models()):
+            for model in models.get_models():
                 with self._conn:
                     self._conn.execute('''
                         insert or ignore into model (name) values (?)
                     ''', (model, ))
 
-                for transect in list(models.get_transects(model)):
+                for transect in models.get_transects(model):
                     if (model, transect) not in completed_pairs:
                         fs.append(executor.submit(worker.run, model, transect))
 
@@ -182,10 +182,10 @@ create table if not exists awct(
             elapsed = time.perf_counter() - start + init_time
             print(f'\nFinished in {format_duration(elapsed)}')
 
-    def get_models(self) -> set[str]:
-        return {name for name, in self._conn.execute('select name from model').fetchall()}
+    def get_models(self) -> list[str]:
+        return [name for name, in self._conn.execute('select name from model').fetchall()]
 
-    def get_transects(self, model: str) -> set[str]:
+    def get_transects(self, model: str) -> list[str]:
         rows = self._conn.execute('''
             select transect.name
             from metadata
@@ -193,19 +193,22 @@ create table if not exists awct(
                 join transect on metadata.transect_id = transect.id
             where model.name = ?
         ''', (model, )).fetchall()
-        return {name for name, in rows}
+        return [name for name, in rows]
 
-    def get_all_transects(self) -> set[str]:
-        return {name for name, in self._conn.execute('select name from transect').fetchall()}
+    def get_all_transects(self) -> list[str]:
+        return [name for name, in self._conn.execute('select name from transect').fetchall()]
 
-    def get_wct(self, model: str, transect: str) -> wavelet.WCT:
-        rowid, n, j, dt, dates = self._conn.execute('''
+    def get_wct(self, model: str, transect: str) -> wavelet.WCT | None:
+        row = self._conn.execute('''
             select metadata.id, n, j, dt, dates
             from metadata
                 join model on metadata.model_id = model.id
                 join transect on metadata.transect_id = transect.id
             where model.name = ? and transect.name = ?
         ''', (model, transect)).fetchone()
+        if row is None:
+            return None
+        rowid, n, j, dt, dates = row
 
         dates = pd.Series(json.loads(dates))
 

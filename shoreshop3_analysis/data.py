@@ -297,13 +297,13 @@ create table if not exists data(
         if updated and self._scratchdir:
             subprocess.run(['cp', self._active_path, self._perm_path])
 
-    def get_models(self) -> set[str]:
-        return {model for model, in self._conn.execute('select name from model').fetchall()}
+    def get_models(self) -> list[str]:
+        return [model for model, in self._conn.execute('select name from model').fetchall()]
 
-    def get_all_transects(self) -> set[str]:
-        return {transect for transect, in self._conn.execute('select name from transect').fetchall()}
+    def get_all_transects(self) -> list[str]:
+        return [transect for transect, in self._conn.execute('select name from transect').fetchall()]
 
-    def get_transects(self, model: str) -> set[str]:
+    def get_transects(self, model: str) -> list[str]:
         rows = self._conn.execute('''
             select transect.name
             from transect
@@ -314,7 +314,7 @@ create table if not exists data(
                 where model.name = ? and transect_id = transect.id
             )
         ''', (model, )).fetchall()
-        return {transect for transect, in rows}
+        return [transect for transect, in rows]
 
     def get_model_transect_data(self, model: str, transect: str) -> pd.DataFrame:
         '''
