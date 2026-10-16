@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import plotnine as pn
 import pycwt
 
 
@@ -63,19 +64,35 @@ class WaveletResult(ABC):
         pass
 
     @abstractmethod
+    def timeseries(self) -> pd.DataFrame | None:
+        '''
+        Returns: dataframe with columns date (iso8601 str), x (float), or None if n/a
+        '''
+        pass
+
+    @abstractmethod
     def power(self) -> np.ndarray:
+        '''
+        Returns: ndarray shape (J, N)
+        '''
         pass
 
     @abstractmethod
     def period(self) -> np.ndarray:
+        '''
+        Returns: ndarray shape J
+        '''
         pass
 
     @abstractmethod
     def coi(self) -> np.ndarray:
+        '''
+        Returns: ndarray shape N
+        '''
         pass
 
     @abstractmethod
-    def xlabel(self, x, pos) -> str:
+    def xlabel(self, x) -> str:
         pass
 
     @abstractmethod
@@ -90,8 +107,10 @@ class WaveletResult(ABC):
         power = self.power().copy()
         power[mask] = 0
         counts = np.count_nonzero(~mask, axis=1)
-        # ignore divide by zero, results in nan for scales with no valid data, which is desired behavior
+        # Ignore divide by zero, results in nan for scales with no valid data, which is desired behavior
         with np.errstate(divide='ignore'):
+            # An arithmetic mean in log space is equivalent to a geometric mean,
+            # which is the right kind of mean for wavelet powers.
             mean = np.sum(power, axis=1) / counts
         if dropnan:
             mean = mean[~np.isnan(mean)]
@@ -99,49 +118,42 @@ class WaveletResult(ABC):
 
     def plot(self, title: str | None = None) -> mpl.figure.Figure:
         power = self.power()
-        # fft_power = np.abs(fft) ** 2
-        period = self.period()
+        j, n = power.shape
+        period = np.log2(self.period())
         # global_power = out.global_power()
-        t = np.arange(0, len(self.coi()), 1)
+        t = np.arange(0, n, 1)
 
-        fig, ax = plt.subplots()
+        data = pd.DataFrame({
+            'period': np.repeat(period, n),
+            't': np.tile(t, j),
+            'power': power.flatten(),
+        })
 
-        fig.tight_layout()
+        coi = pd.DataFrame({
+            'x': np.concatenate([t, t[-1:] + self.dt(), t[-1:] + self.dt(), t[:1] - self.dt(), t[:1] - self.dt()]),
+            'y': np.concatenate([np.log2(self.coi()), [1e-9], period[-1:] + 1, period[-1:] + 1, [1e-9]]),
+        })
 
-        contourset = ax.contourf(t, np.log2(period), power, levels=64, extend='both', cmap='Blues')
-        ax.fill(
-            np.concatenate([t, t[-1:] + self.dt(), t[-1:] + self.dt(), t[:1] - self.dt(), t[:1] - self.dt()]),
-            np.concatenate([np.log2(self.coi()), [1e-9], np.log2(period[-1:]), np.log2(period[-1:]), [1e-9]]),
-            'white',
-            alpha=0.5,
-            hatch='x',
+        return (
+            pn.ggplot(data)
+            + pn.geom_raster(pn.aes('t', 'period', fill='power'))
+            + pn.geom_polygon(pn.aes('x', 'y'), data=coi, fill='white', color='black', alpha=0.5)
+            + pn.scale_fill_continuous(cmap_name='viridis')
+            + pn.scale_x_continuous(
+                breaks=np.arange(0, n, (365*5 + 2) / self.dt()),
+                labels=lambda breaks: list(map(self.xlabel, breaks)),
+            )
+            + pn.scale_y_continuous(labels=lambda breaks: [format_period(int(2**y)) for y in breaks])
+            + pn.coord_cartesian(xlim=(0, n), ylim=(np.min(period), np.max(period)), expand=False)
+            + pn.labs(title=title or '', x='', y='Period', fill=self.colorbar_label())
+            + pn.theme(figure_size=(8, 4))
         )
-
-        ax.xaxis.set_major_formatter(mpl.ticker.FuncFormatter(lambda x, pos: self.xlabel(x, pos)))
-        #plt.setp(plt.gca().get_xticklabels(), rotation=-45, ha='left')
-        ax.xaxis.set_major_locator(mpl.ticker.MultipleLocator((365*5 + 2) / self.dt()))
-
-        def y_to_period(y, pos):
-            return format_period(int(2**y))
-        ax.yaxis.set_major_formatter(mpl.ticker.FuncFormatter(y_to_period))
-
-        fig.colorbar(contourset, label=self.colorbar_label())
-
-        ax.set_xlim(np.min(t), np.max(t))
-        ax.set_ylim(np.min(np.log2(period)), np.max(np.log2(period)))
-
-        ax.set_ylabel('Period')
-        if title:
-            ax.set_title(title)
-
-        fig.set_size_inches(8, 4)
-
-        return fig
 
 
 class CWT(WaveletResult):
     _dt: float
     _dates: pd.Series
+    _signal: np.ndarray # shape: N
     _wave: np.ndarray # shape: J, N
     _scales: np.ndarray # shape: J
     _freqs: np.ndarray # shape: J
@@ -152,6 +164,7 @@ class CWT(WaveletResult):
     def __init__(self, dates: pd.Series, signal: np.ndarray, dt: float, *args, **kwargs) -> None:
         self._dt = dt
         self._dates = dates
+        self._signal = signal
         start = time.perf_counter_ns()
         self._wave, self._scales, self._freqs, self._coi, self._fft, self._fftfreqs = pycwt.cwt(signal, dt, *args, **kwargs)
         elapsed = time.perf_counter_ns() - start
@@ -159,6 +172,10 @@ class CWT(WaveletResult):
     @override
     def dt(self) -> float:
         return self._dt
+
+    @override
+    def timeseries(self) -> pd.DataFrame:
+        return pd.DataFrame({'date': self._dates, 'x': self._signal})
 
     @override
     def power(self) -> np.ndarray:
@@ -173,7 +190,7 @@ class CWT(WaveletResult):
         return self._coi
 
     @override
-    def xlabel(self, x, pos) -> str:
+    def xlabel(self, x) -> str:
         idx = int(round(x))
         if 0 <= idx < len(self._dates):
             return self._dates[idx][:4]
@@ -207,6 +224,10 @@ class WCT(WaveletResult):
         self._sig = sig
 
     @override
+    def timeseries(self) -> pd.DataFrame | None:
+        return None
+
+    @override
     def dt(self) -> float:
         return self._dt
 
@@ -223,7 +244,7 @@ class WCT(WaveletResult):
         return self._coi
 
     @override
-    def xlabel(self, x, pos) -> str:
+    def xlabel(self, x) -> str:
         idx = int(round(x))
         if 0 <= idx < len(self._dates):
             return self._dates[idx][:4]
