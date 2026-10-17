@@ -1,16 +1,16 @@
 import os
 import sqlite3
 import subprocess
-import time
 import zipfile
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import xarray as xr
 import geopandas as gp
 import pycwt
 
-from shoreshop3_analysis import wavelet
+from shoreshop3_analysis import wavelet, util
 
 
 workdir = Path('/work/sln33')
@@ -18,10 +18,26 @@ scratchdir = Path('/scratch')
 
 
 shoreshop_path = Path.home() / 'abmurraylab/shoreshop3'
+
+
+datadir = shoreshop_path / 'analysis/wavelets'
+coastsat_data_path = datadir / 'coastsat.zarr'
+model_coherence_path = datadir / 'coherence.zarr'
+
+
 input_coastsat_path = shoreshop_path / 'inputdata/NC_CoastSat_smoothed.zip'
 input_profiles_path = shoreshop_path / 'inputdata/hindcast_1980_2023/shorelines_and_profiles/NC_transects.geojson'
 input_frf_path = shoreshop_path / 'inputdata/hindcast_1980_2023/shorelines_and_profiles/FRF_Profiles.zip'
 submissions_path = shoreshop_path / 'submissions/UserSubmissionsCleaned'
+
+
+datacubes_path = shoreshop_path / 'submissions/MIP_datacubes'
+duck_1871_2012_cube_path = datacubes_path / 'MIP_Duck_1871-2012.nc'
+duck_1980_2023_cube_path = datacubes_path / 'MIP_Duck_1980-2023.nc'
+duck_2024_2100_cube_path = datacubes_path / 'MIP_Duck_2024-2100.nc'
+nc_1871_2012_cube_path = datacubes_path / 'MIP_NC_1871-2012.nc'
+nc_1980_2023_cube_path = datacubes_path / 'MIP_NC_1980-2023.nc'
+nc_2024_2100_cube_path = datacubes_path / 'MIP_NC_2024-2100.nc'
 
 
 duck_1980_2023_paths = {
@@ -97,86 +113,24 @@ def load_profiles() -> gp.GeoDataFrame:
 
 class CoastsatData:
     def __init__(self) -> None:
-        self._path = scratchdir / 'coastsat.sqlite'
-        self._conn = sqlite3.connect(self._path)
-
-        # the worker processes use this class, so avoid writing if the db is already initialized
-        if self._conn.execute('select 1 from sqlite_schema limit 1').fetchone() is None:
-            self._conn.executescript('''
-create table transect(
-    id integer primary key,
-    name text unique not null
-);
-
-create table data(
-    transect_id integer references transect not null,
-    datetime real not null, -- julianday
-    x real,
-    primary key(transect_id, datetime)
-) without rowid;
-''')
-
-    def populate(self) -> None:
-        with zipfile.ZipFile(input_coastsat_path, 'r') as zf:
-            for info in zf.infolist():
-                if not info.filename.startswith('NC_CoastSat_smoothed/usa_NC_'):
-                    continue
-
-                transect = info.filename.removeprefix('NC_CoastSat_smoothed/usa_NC_').removesuffix('.csv')
-
-                if self._conn.execute('''
-                    select 1 from transect where name = ?
-                ''', (transect, )).fetchone() is not None:
-                    continue
-
-                with self._conn:
-                    transect_id = self._conn.execute('''
-                        insert into transect (name) values (?)
-                    ''', (transect, )).lastrowid
-    
-                    with zf.open(info.filename, 'r') as file:
-                        rows = []
-                        for line in file:
-                            date, x = line.decode('utf-8').rstrip().split(',')
-                            rows.append((transect_id, date, float(x)))
-                    self._conn.executemany('''
-                        insert into data (transect_id, datetime, x) values (?, julianday(?), ?)
-                    ''', rows)
+        self._ds = xr.open_zarr(coastsat_data_path, consolidated=False)
 
     def get_transects(self) -> list[str]:
-        return [name for name, in self._conn.execute('select name from transect').fetchall()]
-
-    def get_all(self) -> pd.DataFrame:
-        df = pd.read_sql_query('''
-            select transect.name as transect, datetime(datetime) as time, x
-            from data
-                join transect on data.transect_id = transect.id
-            order by transect, time
-        ''', self._conn)
-        df['time'] = pd.to_datetime(df['time'])
-        return df
+        return [name.removeprefix('usa_NC_') for name in self._ds.transect.values]
 
     def get_single(self, transect_id: str) -> pd.DataFrame:
-        df = pd.read_sql_query('''
-            select datetime(datetime) as time, x
-            from data
-                join transect on data.transect_id = transect.id
-            where transect.name = :transect
-            order by time
-        ''', self._conn, params={'transect': transect_id})
-        df['time'] = pd.to_datetime(df['time'])
-        return df
+        subset = self._ds.shoreline_position.sel(transect=transect_id).dropna('time')
+        return subset.to_pandas().reset_index().rename(columns={'shoreline_position': 'x'})
 
 
 def load_frf_single(transect_id: str) -> pd.DataFrame:
     '''
-    returns df with columns time, date, xFRF, yFRF, latitude, longitude
+    returns df with columns time, xFRF, yFRF, latitude, longitude
     '''
     with zipfile.ZipFile(input_frf_path, 'r') as zf:
         with zf.open(f'FRF_Profiles/{transect_id}/shorelinePosAtyFRF1.csv') as file:
             df = pd.read_csv(file)
 
-    df['date'] = df['time'].apply(lambda s: s[:10])
     df['time'] = pd.to_datetime(df['time'])
 
     return df
@@ -189,7 +143,7 @@ def load_single_profile_models() -> pd.DataFrame:
 
     dfs = []
     for model, path in duck_1980_2023_paths.items():
-        df = pd.read_csv(path, header=1, names=('date', 'frf1', 'frf1006')).dropna()
+        df = pd.read_csv(path, header=1, names=('time', 'frf1', 'frf1006')).dropna()
         df['model'] = model
         dfs.append(df)
 
@@ -201,133 +155,28 @@ def load_single_profile_models() -> pd.DataFrame:
         m, d, y = list(map(int, date.split('/')))
         return f'{y:04}-{m:02}-{d:02}'
 
-    df['date'] = df['date'].apply(fix_date)
+    df['time'] = pd.to_datetime(df['time'].apply(fix_date))
 
     return df
 
 
 class MultiProfileModels:
-    # Takes about 10 minutes to generate the database,
-    # 10-20 seconds to copy it to/from /scratch,
-    # 15 ms to read a model+transect pair
-
     def __init__(self, scratchdir: str | None = None) -> None:
-        self._scratchdir = scratchdir
-        fname = 'models-nc-1980-2023.sqlite'
-        self._perm_path = Path(__file__).parent.parent / fname
-        if scratchdir:
-            self._active_path = Path(self._scratchdir) / fname
-        else:
-            self._active_path = self._perm_path
-
-        if self._perm_path.exists() and self._scratchdir and not self._active_path.exists():
-            subprocess.run(['cp', self._perm_path, self._active_path])
-
-        self._conn = sqlite3.connect(self._active_path)
-
-        self._conn.execute('pragma foreign_keys = on')
-        self._conn.execute('pragma cache_size = -4000000')
-        self._conn.execute('pragma mmap_size = 4000000000')
-
-        # since this class is used by the process pool, it must avoid writes if the db is already initialized
-        if self._conn.execute('select 1 from sqlite_schema limit 1').fetchone() is None:
-            self._conn.executescript('''
-create table if not exists model(
-    id integer primary key,
-    name text unique not null
-);
-
-create table if not exists transect(
-    id integer primary key,
-    name text unique not null
-);
-
-create table if not exists data(
-    model_id integer references model not null,
-    transect_id integer references transect not null,
-    date real not null, -- julianday
-    x real,
-    primary key(model_id, transect_id, date)
-) without rowid;
-''')
-
-    def populate(self, progress: bool = True) -> None:
-        def fix_date(date: str) -> str:
-            if '/' not in date:
-                return date
-            m, d, y = list(map(int, date.split('/')))
-            return f'{y:04}-{m:02}-{d:02}'
-
-        start = time.perf_counter_ns()
-
-        updated = False
-
-        for i, (model, path) in enumerate(nc_1980_2023_paths.items()):
-            if progress:
-                print(f'\rParsing model {i+1}/{len(nc_1980_2023_paths)}: {model}...                          ', end='')
-            with open(path) as file:
-                header = next(file)
-                transects = [col.removeprefix('usa_NC_') for col in header.rstrip().split(',')[1:]]
-                transect_ids = []
-                with self._conn:
-                    row = self._conn.execute('select id from model where name = ?', (model, )).fetchone()
-                    if row is None:
-                        model_id = self._conn.execute('insert or ignore into model (name) values (?)', (model, )).lastrowid
-                        updated = True
-                    else:
-                        continue
-                    for transect in transects:
-                        self._conn.execute('insert or ignore into transect (name) values (?)', (transect, ))
-                        id, = self._conn.execute('select id from transect where name = ?', (transect, )).fetchone()
-                        transect_ids.append(id)
-
-                    for line in file:
-                        values = line.rstrip().split(',')
-                        date = fix_date(values[0])
-                        rows = [
-                            (model_id, transect_id, date, None if x == '' else float(x))
-                            for transect_id, x in zip(transect_ids, values[1:])
-                        ]
-                        self._conn.executemany('''
-                            insert or ignore into data (model_id, transect_id, date, x)
-                            values (?, ?, julianday(?), ?)
-                        ''', rows)
-
-        elapsed = (time.perf_counter_ns() - start) / 1e6
-        if progress:
-            print(f'\nParsed all models in {elapsed:.3f} ms')
-
-        if updated and self._scratchdir:
-            subprocess.run(['cp', self._active_path, self._perm_path])
+        self._ds = xr.open_dataset(nc_1980_2023_cube_path)
 
     def get_models(self) -> list[str]:
-        return [model for model, in self._conn.execute('select name from model').fetchall()]
+        return self._ds.model.values.tolist()
 
     def get_all_transects(self) -> list[str]:
-        return [transect for transect, in self._conn.execute('select name from transect').fetchall()]
+        return [name.removeprefix('usa_NC_') for name in self._ds.transect.values]
 
     def get_transects(self, model: str) -> list[str]:
-        rows = self._conn.execute('''
-            select transect.name
-            from transect
-            where exists(
-                select 1
-                from data
-                    join model on data.model_id = model.id
-                where model.name = ? and transect_id = transect.id
-            )
-        ''', (model, )).fetchall()
-        return [transect for transect, in rows]
+        return self.get_all_transects()
 
     def get_model_transect_data(self, model: str, transect: str) -> pd.DataFrame:
         '''
-        Returns: dataframe with columns model, transect, date, x
+        Returns: dataframe with columns time (datetime64), x (float)
         '''
-        return pd.read_sql_query('''
-            select model.name as model, transect.name as transect, date(date) as date, x
-            from data
-                join model on data.model_id = model.id
-                join transect on data.transect_id = transect.id
-            where model.name = :model and transect.name = :transect
-            order by date
-        ''', self._conn, params={'model': model, 'transect': transect})
+        subset = self._ds.shoreline_position.sel(model=model, transect='usa_NC_' + transect)
+        subset = subset.dropna('time')
+        return subset.to_pandas().reset_index().rename(columns={'shoreline_position': 'x'})

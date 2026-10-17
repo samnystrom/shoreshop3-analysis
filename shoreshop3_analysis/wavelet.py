@@ -231,7 +231,7 @@ class WaveletResult(ABC):
 
 class CWT(WaveletResult):
     _dt: float
-    _dates: pd.Series
+    _times: pd.Series
     _signal: np.ndarray # shape: N
     _wave: np.ndarray # shape: J, N
     _scales: np.ndarray # shape: J
@@ -240,9 +240,9 @@ class CWT(WaveletResult):
     _fft: np.ndarray
     _fftfreqs: np.ndarray
 
-    def __init__(self, dates: pd.Series, signal: np.ndarray, dt: float, *args, **kwargs) -> None:
+    def __init__(self, times: pd.Series, signal: np.ndarray, dt: float, *args, **kwargs) -> None:
         self._dt = dt
-        self._dates = dates
+        self._times = times
         self._signal = signal
         self._wave, self._scales, self._freqs, self._coi, self._fft, self._fftfreqs = pycwt.cwt(signal, dt, *args, **kwargs)
 
@@ -252,7 +252,7 @@ class CWT(WaveletResult):
 
     @override
     def timeseries(self) -> pd.DataFrame:
-        return pd.DataFrame({'date': self._dates, 'x': self._signal})
+        return pd.DataFrame({'time': self._times, 'x': self._signal})
 
     @override
     def power(self) -> np.ndarray:
@@ -269,8 +269,8 @@ class CWT(WaveletResult):
     @override
     def xlabel(self, x) -> str:
         idx = int(round(x))
-        if 0 <= idx < len(self._dates):
-            return self._dates[idx][:4]
+        if 0 <= idx < len(self._times):
+            return self._times[idx].year
         return ''
 
     @override
@@ -280,7 +280,7 @@ class CWT(WaveletResult):
 
 class WCT(WaveletResult):
     _dt: float
-    _dates: pd.Series
+    _times: pd.Series
     _wct: np.ndarray # shape: J, N
     _awct: np.ndarray # shape: J, N
     _coi: np.ndarray # shape: N
@@ -288,12 +288,12 @@ class WCT(WaveletResult):
     _sig: np.ndarray # shape: J
 
     @classmethod
-    def fromdata(cls, dates: pd.Series, y1: np.ndarray, y2: np.ndarray, dt: float, *args, **kwargs) -> Self:
-        return cls(dt, dates, *pycwt.wct(y1, y2, dt, *args, **kwargs))
+    def fromdata(cls, times: pd.Series, y1: np.ndarray, y2: np.ndarray, dt: float, *args, **kwargs) -> Self:
+        return cls(dt, times, *pycwt.wct(y1, y2, dt, *args, **kwargs))
 
-    def __init__(self, dt: float, dates: pd.Series, wct: np.ndarray, awct: np.ndarray, coi: np.ndarray, freq: np.ndarray, sig: np.ndarray) -> None:
+    def __init__(self, dt: float, times: pd.Series, wct: np.ndarray, awct: np.ndarray, coi: np.ndarray, freq: np.ndarray, sig: np.ndarray) -> None:
         self._dt = dt
-        self._dates = dates
+        self._times = times
         self._wct = wct
         self._awct = awct
         self._coi = coi
@@ -323,8 +323,8 @@ class WCT(WaveletResult):
     @override
     def xlabel(self, x) -> str:
         idx = int(round(x))
-        if 0 <= idx < len(self._dates):
-            return self._dates[idx][:4]
+        if 0 <= idx < len(self._times):
+            return self._times[idx].year
         return ''
 
     @override

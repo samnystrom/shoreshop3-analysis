@@ -110,6 +110,13 @@ def plot_multi_global(
             size=0.7,
         )
         + pn.geom_point(pn.aes('easting', 'northing'), data=leader_profiles, color=leader_color)
+        #+ pn.geom_text(
+        #    pn.aes('easting', 'northing', label='id'),
+        #    data=leader_profiles,
+        #    size=6,
+        #    ha='right',
+        #    nudge_x=-1000,
+        #)
         + pn.coord_cartesian(xlim=xlim, ylim=ylim)
         + pn.labs(title=loader.get_title())
         + theme
@@ -124,7 +131,7 @@ def plot_multi_global(
     ) | (
         pn.ggplot(global_powers)
         + pn.geom_tile(pn.aes('period', 'northing', fill='power', height=tile_height))
-        + pn.scale_fill_continuous(breaks=np.linspace(min_power, max_power, 5), cmap_name='Blues')
+        + pn.scale_fill_continuous(breaks=np.linspace(min_power, max_power, 5), cmap_name='viridis')
         + pn.scale_x_log10(
             labels=lambda breaks: list(map(wavelet.format_period, breaks)),
             expand=(0, 0, 0.1, 0),
@@ -139,5 +146,5 @@ def plot_multi_global(
             axis_ticks_y=pn.element_blank(),
             plot_margin_left=0,
         )
-    )) + pn.theme(figure_size=(10, 5))
+    )) + pn.theme(figure_size=(10, 8))
 

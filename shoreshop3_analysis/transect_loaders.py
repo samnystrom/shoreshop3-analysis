@@ -21,7 +21,7 @@ class TransectLoader(ABC):
     @abstractmethod
     def get_timeseries(self, transect: str) -> pd.DataFrame | None:
         '''
-        Returns: dataframe with columns date (iso8601 str) and x (float), or none if
+        Returns: dataframe with columns time (datetime64) and x (float), or none if
             a timeseries wouldn't be meaningful for this loader
         '''
         pass
@@ -45,13 +45,12 @@ class CoastsatLoader(TransectLoader):
 
     @override
     def get_timeseries(self, transect: str) -> pd.DataFrame | None:
-        raw = self._cs_data.get_single(transect)
-        return wavelet.time_regularize(raw, dt=16)
+        return self._cs_data.get_single(transect)
 
     @override
     def get_wavelet(self, transect: str) -> wavelet.WaveletResult | None:
         df = self.get_timeseries(transect)
-        return wavelet.CWT(df['date'], df['x'].values, dt=16, dj=1/12, s0=-1, J=-1, wavelet='morlet', freqs=None)
+        return wavelet.CWT(df['time'], df['x'].values, dt=16, dj=1/12, s0=-1, J=-1, wavelet='morlet', freqs=None)
 
 
 class ModelDataLoader(TransectLoader):
@@ -73,14 +72,14 @@ class ModelDataLoader(TransectLoader):
         dropped = data.dropna()
         if len(dropped) / len(data) < 0.25 or len(dropped) == 0:
             return None
-        return dropped.drop(columns=['model', 'transect'])
+        return dropped
 
     @override
     def get_wavelet(self, transect: str) -> wavelet.WaveletResult | None:
         df = self.get_timeseries(transect)
         if df is None:
             return None
-        return wavelet.CWT(df['date'], df['x'].values, dt=1, dj=1/12, s0=-1, J=-1, wavelet='morlet', freqs=None)
+        return wavelet.CWT(df['time'], df['x'].values, dt=1, dj=1/12, s0=-1, J=-1, wavelet='morlet', freqs=None)
 
 
 class ModelWCTLoader(TransectLoader):
