@@ -1,6 +1,6 @@
-import time
+import math
 from abc import ABC, abstractmethod
-from typing import Sequence, Self
+from typing import Sequence, Self, override
 
 import numpy as np
 import pandas as pd
@@ -10,37 +10,83 @@ import plotnine as pn
 import pycwt
 
 
-# polyfill
-def override(x):
-    return x
-
-
-def time_regularize(df: pd.DataFrame, cols: str | Sequence[str], dt: float) -> pd.DataFrame:
+def time_regularize(
+    df: pd.DataFrame,
+    dt: float | pd.Timedelta,
+    cols: Sequence[str] | str | None = None,
+    time_col: str = 'time',
+    start: pd.Timestamp | str | None = None,
+) -> pd.DataFrame:
     '''
-    df should have a "time" column which is a pandas datetime. cols are the columns to interpolate.
+    Linearly interpolate `cols` onto a regular time grid.
 
-    Returns: dataframe with columns date, ...cols
+    Parameters
+    ----------
+    df       : must contain a datetime64 column `time_col`. Need not be sorted.
+               Rows with NaT time are dropped; duplicate times are averaged.
+    cols     : column name or names to interpolate (numeric). All columns if None.
+    time_col : name of the datetime column.
+    dt       : grid spacing, in days if a number, or a pd.Timedelta.
+    start    : optional grid anchor. The grid is start + k*dt for integer k,
+               beginning at the first such point >= the first observation.
+               If None, the grid starts at the first observation.
+
+    Returns
+    -------
+    DataFrame with columns ["time", *cols]. Grid points cover
+    [first grid point, last observation] inclusive, so no point is
+    extrapolated. NaNs in a column are skipped for that column, which
+    means gaps are bridged by straight lines.
     '''
 
-    if isinstance(cols, str):
-        cols = (cols, )
+    if cols is None:
+        cols = df.columns.values.tolist()
+        cols.remove(time_col)
+    elif isinstance(cols, str):
+        cols = [cols]
+    else:
+        cols = list(cols)
 
-    start = df['time'].min()
-    range = (df['time'].max() - start).days
-    t = np.arange(0, range, dt)
+    # round because pd.Timedelta(days=0.3) truncates to 1 ns short of 0.3 days
+    step = dt if isinstance(dt, pd.Timedelta) else pd.Timedelta(round(dt * 86_400e9), unit="ns")
+    if step <= pd.Timedelta(0):
+        raise ValueError(f"dt must be positive, got {dt!r}")
 
-    out_cols = {'time': t}
-    in_t = df['time'].apply(lambda time: (time - start).days)
+    d = df[[time_col, *cols]].dropna(subset=[time_col])
+    if d.empty:
+        raise ValueError('df has no rows with a valid time')
+    d = d.groupby(time_col, sort=True)[cols].mean().reset_index()
+
+    t_min, t_max = d[time_col].iloc[0], d[time_col].iloc[-1]
+    if start is None:
+        first = t_min
+    else:
+        start = pd.Timestamp(start)
+        # ceil((t_min - start) / step) in exact integer nanoseconds
+        k = max(0, -((start - t_min) // step))
+        first = start + k * step
+
+    if first > t_max:
+        n = 0
+    else:
+        n = (t_max - first) // step + 1 # inclusive of the endpoint
+    grid = first + pd.to_timedelta(np.arange(n, dtype=np.int64) * step.value, unit='ns')
+
+    x_out = (grid - first) / step # float, in units of dt
+    x_in = ((d[time_col] - first) / step).to_numpy()
+
+    out = {time_col: grid}
     for col in cols:
-        out_cols[col] = np.interp(t, in_t, df[col])
-
-    df_interp = pd.DataFrame(out_cols)
-    df_interp['time'] = df_interp['time'].apply(lambda time: start + pd.Timedelta(days=time))
-    df_interp['date'] = df_interp['time'].apply(lambda time: time.date().isoformat())
-
-    # time is no longer meaningful since we sampled on days
-
-    return df_interp.drop(columns='time')
+        y = d[col].to_numpy(dtype=float)
+        ok = ~np.isnan(y)
+        if ok.sum() == 0:
+            out[col] = np.full(n, np.nan)
+        else:
+            # mask grid points outside this column's own valid range
+            v = np.interp(x_out, x_in[ok], y[ok])
+            v[(x_out < x_in[ok][0]) | (x_out > x_in[ok][-1])] = np.nan
+            out[col] = v
+    return pd.DataFrame(out)
 
 
 def format_period(period: int | float) -> str:
@@ -116,11 +162,11 @@ class WaveletResult(ABC):
             mean = mean[~np.isnan(mean)]
         return mean
 
-    def plot(self, title: str | None = None) -> mpl.figure.Figure:
+    def plot(self, title: str | None = None) -> pn.ggplot:
         power = self.power()
         j, n = power.shape
         period = np.log2(self.period())
-        # global_power = out.global_power()
+        #global_power = self.global_power(dropnan=True)
         t = np.arange(0, n, 1)
 
         data = pd.DataFrame({
@@ -129,25 +175,58 @@ class WaveletResult(ABC):
             'power': power.flatten(),
         })
 
+        #global_data = pd.DataFrame({
+        #    'period': period[:len(global_power)],
+        #    'power': global_power,
+        #})
+
         coi = pd.DataFrame({
             'x': np.concatenate([t, t[-1:] + self.dt(), t[-1:] + self.dt(), t[:1] - self.dt(), t[:1] - self.dt()]),
             'y': np.concatenate([np.log2(self.coi()), [1e-9], period[-1:] + 1, period[-1:] + 1, [1e-9]]),
         })
 
-        return (
+        time_scale = pn.scale_x_continuous(
+            expand=(0, 0),
+            breaks=np.arange(0, n, (365*5 + 2) / self.dt()),
+            labels=lambda breaks: list(map(self.xlabel, breaks)),
+        )
+        period_scale = pn.scale_y_continuous(expand=(0, 0), labels=lambda breaks: [format_period(int(2**y)) for y in breaks])
+        period_lim = (np.min(period), np.max(period))
+
+        timeseries = self.timeseries()
+        timeseries['t'] = t
+        if timeseries is not None:
+            timeseries_plot = (
+                pn.ggplot(timeseries)
+                + pn.geom_line(pn.aes('t', 'x', group=1))
+                #+ pn.scale_x_date(date_breaks='5 years', date_labels='%Y')
+                + time_scale
+                + pn.labs(x='', y='Shoreline position (m)')
+            )
+
+        scalogram = (
             pn.ggplot(data)
             + pn.geom_raster(pn.aes('t', 'period', fill='power'))
             + pn.geom_polygon(pn.aes('x', 'y'), data=coi, fill='white', color='black', alpha=0.5)
             + pn.scale_fill_continuous(cmap_name='viridis')
-            + pn.scale_x_continuous(
-                breaks=np.arange(0, n, (365*5 + 2) / self.dt()),
-                labels=lambda breaks: list(map(self.xlabel, breaks)),
-            )
-            + pn.scale_y_continuous(labels=lambda breaks: [format_period(int(2**y)) for y in breaks])
-            + pn.coord_cartesian(xlim=(0, n), ylim=(np.min(period), np.max(period)), expand=False)
+            + time_scale
+            + period_scale
+            + pn.coord_cartesian(xlim=(0, n), ylim=period_lim)
             + pn.labs(title=title or '', x='', y='Period', fill=self.colorbar_label())
-            + pn.theme(figure_size=(8, 4))
         )
+        #global_plot = (
+        #    pn.ggplot(global_data)
+        #    + pn.geom_path(pn.aes('power', 'period'))
+        #    + period_scale
+        #    + pn.coord_cartesian(ylim=period_lim)
+        #    + pn.labs(x=self.colorbar_label(), y='Period')
+        #)
+
+        if timeseries is not None:
+            #composite = (timeseries_plot / scalogram) | ((pn.ggplot() + pn.theme_void()) / global_plot)
+            return timeseries_plot / scalogram + pn.theme(figure_size=(10, 7))
+        else:
+            return scalogram + pn.theme(figure_size=(10, 4)) #| global_plot
 
 
 class CWT(WaveletResult):
@@ -165,9 +244,7 @@ class CWT(WaveletResult):
         self._dt = dt
         self._dates = dates
         self._signal = signal
-        start = time.perf_counter_ns()
         self._wave, self._scales, self._freqs, self._coi, self._fft, self._fftfreqs = pycwt.cwt(signal, dt, *args, **kwargs)
-        elapsed = time.perf_counter_ns() - start
 
     @override
     def dt(self) -> float:
@@ -198,7 +275,7 @@ class CWT(WaveletResult):
 
     @override
     def colorbar_label(self) -> str:
-        return 'Wavelet power ($\log_2$)'
+        return 'Power ($\\log_2$)'
 
 
 class WCT(WaveletResult):
