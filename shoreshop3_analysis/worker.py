@@ -27,7 +27,7 @@ def run(model: str, transect: str) -> tuple[float, list[str], np.ndarray, np.nda
     dt = 8.0
 
     obs = _coastsat_data.get_single(transect)
-    obs_interp = wavelet.time_regularize(obs, 'x', dt=dt)
+    obs_interp = wavelet.time_regularize(obs, dt=dt)
     model_data = _models.get_model_transect_data(model, transect).dropna()
     if len(model_data) == 0: # this transect isn't present for the model
         return None

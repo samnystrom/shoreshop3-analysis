@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import override
 
 import numpy as np
 import pandas as pd
@@ -34,16 +35,20 @@ class CoastsatLoader(TransectLoader):
     def __init__(self, cs_data: data.CoastsatData) -> None:
         self._cs_data = cs_data
 
+    @override
     def get_title(self) -> str:
         return 'Global Wavelet Power (1980–2023): CoastSat'
 
+    @override
     def get_transects(self) -> list[str]:
         return self._cs_data.get_transects()
 
+    @override
     def get_timeseries(self, transect: str) -> pd.DataFrame | None:
         raw = self._cs_data.get_single(transect)
-        return wavelet.time_regularize(raw, 'x', dt=16)
+        return wavelet.time_regularize(raw, dt=16)
 
+    @override
     def get_wavelet(self, transect: str) -> wavelet.WaveletResult | None:
         df = self.get_timeseries(transect)
         return wavelet.CWT(df['date'], df['x'].values, dt=16, dj=1/12, s0=-1, J=-1, wavelet='morlet', freqs=None)
@@ -54,12 +59,15 @@ class ModelDataLoader(TransectLoader):
         self._models = models
         self._model = model
 
+    @override
     def get_title(self) -> str:
         return f'Global Wavelet Power (1980–2023): model={self._model}'
 
+    @override
     def get_transects(self) -> list[str]:
         return self._models.get_transects(self._model)
 
+    @override
     def get_timeseries(self, transect: str) -> pd.DataFrame | None:
         data = self._models.get_model_transect_data(self._model, transect)
         dropped = data.dropna()
@@ -67,6 +75,7 @@ class ModelDataLoader(TransectLoader):
             return None
         return dropped.drop(columns=['model', 'transect'])
 
+    @override
     def get_wavelet(self, transect: str) -> wavelet.WaveletResult | None:
         df = self.get_timeseries(transect)
         if df is None:
@@ -79,15 +88,19 @@ class ModelWCTLoader(TransectLoader):
         self._wct = loader
         self._model = model
 
+    @override
     def get_title(self) -> str:
         return f'Global Wavelet Coherence (1980–2023): model={self._model}'
 
+    @override
     def get_transects(self) -> list[str]:
         return self._wct.get_transects(self._model)
 
+    @override
     def get_timeseries(self) -> pd.DataFrame | None:
         return None
 
+    @override
     def get_wavelet(self, transect: str) -> wavelet.WaveletResult | None:
         return self._wct.get_wct(self._model, transect)
         assert wct is not None, 'invalid model/transect combination given'

@@ -2,18 +2,17 @@ import json
 import os
 import sys
 import sqlite3
-import time
 from concurrent import futures
 
 import numpy as np
 import pandas as pd
 
-from shoreshop3_analysis import data, worker, wavelet
+from shoreshop3_analysis import util, data, worker, wavelet
 
 
 class MultiProfileWCT:
     def __init__(self) -> None:
-        self._path = data.workdir / 'models-nc-1980-2023-cwt.sqlite'
+        self._path = data.datadir / 'models-nc-1980-2023-cwt.sqlite'
 
         self._conn = sqlite3.connect(self._path)
 
@@ -64,11 +63,9 @@ create table if not exists awct(
 ''')
 
     def compute(self, progress: bool = True) -> None:
-        def format_duration(s: float) -> str:
-            return f'{int(s/3600)}:{int(s/60%60):02}:{int(s%60):02}'
-
         if progress:
-            start = time.perf_counter()
+            timer = util.Timer()
+            init_timer = util.Timer()
             print('Initializing...')
 
         coastsat_data = data.CoastsatData()
@@ -77,8 +74,8 @@ create table if not exists awct(
         models.populate(progress=False)
 
         if progress:
-            init_time = time.perf_counter() - start
-            print(f'Initialization finished in {format_duration(init_time)}')
+            init_timer.stop()
+            print(f'Initialization finished in {init_timer}')
 
         params = [(transect, ) for transect in list(models.get_all_transects())]
         with self._conn:
@@ -87,15 +84,9 @@ create table if not exists awct(
             ''', params)
 
         with futures.ProcessPoolExecutor(
-            # process_cpu_count is python 3.13
-            # max_workers=os.process_cpu_count()-1,
-            max_workers=95,
+            max_workers=os.process_cpu_count()-1,
             initializer=worker.init,
         ) as executor:
-
-            if progress:
-                start = time.perf_counter()
-
             rows = self._conn.execute('''
                 select model.name, transect.name
                 from metadata
@@ -179,8 +170,7 @@ create table if not exists awct(
                         blob.write(awct)
 
         if progress:
-            elapsed = time.perf_counter() - start + init_time
-            print(f'\nFinished in {format_duration(elapsed)}')
+            print(f'\nFinished in {timer}')
 
     def get_models(self) -> list[str]:
         return [name for name, in self._conn.execute('select name from model').fetchall()]
