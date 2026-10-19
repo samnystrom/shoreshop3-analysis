@@ -63,7 +63,7 @@ class MultiProfileWCT:
         }
         self._ds.to_zarr(data.model_coherence_path, compute=False, consolidated=False, zarr_format=3, encoding=encoding)
 
-    def compute(self) -> None:
+    def compute(self, task: int = 0, ntasks: int = 1) -> None:
         timer = util.Timer()
         print('Initializing...')
 
@@ -78,7 +78,9 @@ class MultiProfileWCT:
             fs = []
             all_models = models.get_models()
             all_transects = models.get_all_transects()
-            for i, j in np.array(np.isnan(self._ds.period[:, :, 0].values).nonzero()).T:
+            for i, j in np.array(np.isnan(self._ds.period[:, task::ntasks, 0].values).nonzero()).T:
+                j = j * ntasks + task
+                print(f'queueing ({i}, {j}): {all_models[i]} {all_transects[j]}')
                 fs.append(executor.submit(worker.run, all_models[i], all_transects[j], (i, j)))
 
             for i, future in enumerate(futures.as_completed(fs)):

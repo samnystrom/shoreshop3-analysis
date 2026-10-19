@@ -52,12 +52,14 @@ def _run_internal(model: str, transect: str, idx: tuple[int, int]) -> None: # Wo
     obs = _coastsat_data.get_single(transect)
     model_data = _models.get_model_transect_data(model, transect)
     if len(model_data) == 0: # this transect isn't present for the model
+        print(f'skipping (empty): {model} {transect} ({idx[0]}, {idx[1]})')
         return None
     obs['date'] = obs['time'].dt.date
     model_data['date'] = model_data['time'].dt.date
     joined = obs.merge(model_data, on='date', how='inner', suffixes=('_obs', '_model'))
     joined = joined.dropna(subset=['x_obs', 'x_model'])
     if len(joined) < 4:
+        print(f'skipping (empty join): {model} {transect} ({idx[0]}, {idx[1]})')
         return None # too short for WCT
 
     wave = wavelet.WCT.fromdata(joined['time_obs'], joined['x_obs'].values, joined['x_model'].values, dt)
@@ -75,6 +77,6 @@ def _run_internal(model: str, transect: str, idx: tuple[int, int]) -> None: # Wo
     _arr['coi'][*idx, :n] = wave.coi().astype(np.float64)
     _arr['sig'][*idx, :j] = wave.sig().astype(np.float64)
 
-    print(f'done with {model} {transect}')
+    print(f'finished: {model} {transect} ({idx[0]}, {idx[1]})')
 
     return None # WorkerResult(*idx, dt, start, n, j, period, wave.sig(), wave.coi())

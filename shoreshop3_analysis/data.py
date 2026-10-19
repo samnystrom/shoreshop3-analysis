@@ -21,6 +21,7 @@ shoreshop_path = Path.home() / 'abmurraylab/shoreshop3'
 datadir = shoreshop_path / 'analysis/wavelets'
 coastsat_data_path = datadir / 'coastsat.zarr'
 model_coherence_path = datadir / 'coherence.zarr'
+blind_path = datadir / 'MIP_NC_2020-2023.nc'
 
 shoreline_path = Path(__file__).parent.parent / 'nc_80k.gpkg'
 
