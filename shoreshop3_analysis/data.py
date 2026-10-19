@@ -16,22 +16,20 @@ from shoreshop3_analysis import wavelet, util
 workdir = Path('/work/sln33')
 scratchdir = Path('/scratch')
 
-
 shoreshop_path = Path.home() / 'abmurraylab/shoreshop3'
-
 
 datadir = shoreshop_path / 'analysis/wavelets'
 coastsat_data_path = datadir / 'coastsat.zarr'
 model_coherence_path = datadir / 'coherence.zarr'
 
+shoreline_path = Path(__file__).parent.parent / 'nc_80k.gpkg'
 
 input_coastsat_path = shoreshop_path / 'inputdata/NC_CoastSat_smoothed.zip'
 input_profiles_path = shoreshop_path / 'inputdata/hindcast_1980_2023/shorelines_and_profiles/NC_transects.geojson'
 input_frf_path = shoreshop_path / 'inputdata/hindcast_1980_2023/shorelines_and_profiles/FRF_Profiles.zip'
 submissions_path = shoreshop_path / 'submissions/UserSubmissionsCleaned'
 
-
-datacubes_path = shoreshop_path / 'submissions/old/MIP_datacubes'
+datacubes_path = shoreshop_path / 'submissions/MIP_datacubes'
 duck_1871_2012_cube_path = datacubes_path / 'MIP_Duck_1871-2012.nc'
 duck_1980_2023_cube_path = datacubes_path / 'MIP_Duck_1980-2023.nc'
 duck_2024_2100_cube_path = datacubes_path / 'MIP_Duck_2024-2100.nc'
@@ -90,9 +88,17 @@ def load_profiles() -> gp.GeoDataFrame:
     return gp.read_file(input_profiles_path).to_crs(epsg=26918)
 
 
+def load_shoreline() -> gp.GeoDataFrame:
+    # UTM zone 18N
+    return gp.read_file(shoreline_path).to_crs(epsg=26918)
+
+
 class CoastsatData:
     def __init__(self) -> None:
         self._ds = xr.open_zarr(coastsat_data_path, consolidated=False)
+
+    def dt(self) -> float:
+        return self._ds.attrs['dt']
 
     def get_range(self) -> tuple[np.datetime64, np.datetime64]:
         return self._ds.time.min().values, self._ds.time.max().values

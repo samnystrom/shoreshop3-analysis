@@ -50,7 +50,7 @@ class CoastsatLoader(TransectLoader):
     @override
     def get_wavelet(self, transect: str) -> wavelet.WaveletResult | None:
         df = self.get_timeseries(transect)
-        return wavelet.CWT(df['time'], df['x'].values, dt=16)
+        return wavelet.CWT(df['time'], df['x'].values, dt=self._cs_data.dt())
 
 
 class ModelDataLoader(TransectLoader):
