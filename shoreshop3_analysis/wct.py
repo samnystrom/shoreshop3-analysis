@@ -38,9 +38,9 @@ class MultiProfileWCT:
         self._ds = xr.Dataset(
             data_vars={
                 'start':     (('model', 'transect'),          np.full((M, T), 0, dtype=int)),
-                'period':    (('model', 'transect', 'scale'), np.full((M, T, j), np.nan, dtype=np.float32)),
-                'sig':       (('model', 'transect', 'scale'), np.full((M, T, j), np.nan, dtype=np.float32)),
-                'coi':       (('model', 'transect', 'time'),  np.full((M, T, n), np.nan, dtype=np.float32)),
+                'period':    (('model', 'transect', 'scale'), np.full((M, T, j), np.nan, dtype=np.float64)),
+                'sig':       (('model', 'transect', 'scale'), np.full((M, T, j), np.nan, dtype=np.float64)),
+                'coi':       (('model', 'transect', 'time'),  np.full((M, T, n), np.nan, dtype=np.float64)),
                 'coherence': (('model', 'transect', 'scale', 'time'), dask.array.full((M, T, j, n), np.nan, dtype=np.float32, chunks=(1, 1, j, n))),
             },
             coords={
@@ -56,10 +56,10 @@ class MultiProfileWCT:
             },
         )
         encoding = {
-            'start': {'chunks': (1, 10)},
-            'period': {'chunks': (1, 10, j)},
-            'sig': {'chunks': (1, 10, j)},
-            'coi': {'chunks': (1, 10, n)},
+            'start': {'chunks': (1, 1)},
+            'period': {'chunks': (1, 1, j)},
+            'sig': {'chunks': (1, 1, j)},
+            'coi': {'chunks': (1, 1, n)},
         }
         self._ds.to_zarr(data.model_coherence_path, compute=False, consolidated=False, zarr_format=3, encoding=encoding)
 
@@ -74,7 +74,7 @@ class MultiProfileWCT:
 
         mem_gb = util.get_peak_mem() / 1024**3
 
-        with futures.ProcessPoolExecutor(max_workers=os.process_cpu_count()-1) as executor:
+        with futures.ProcessPoolExecutor(max_workers=os.process_cpu_count()) as executor:
             fs = []
             all_models = models.get_models()
             all_transects = models.get_all_transects()
@@ -82,25 +82,20 @@ class MultiProfileWCT:
                 fs.append(executor.submit(worker.run, all_models[i], all_transects[j], (i, j)))
 
             for i, future in enumerate(futures.as_completed(fs)):
-                timer.stop()
-                elapsed = timer.ns
-                predicted_time = elapsed / (i+1) * len(fs)
-                predicted = util.Timer()
-                predicted._start = timer._start
-                predicted._end = predicted._start + predicted_time
-                if i % 10 == 0:
-                    mem_gb = util.get_peak_mem() / 1024**3
-                print(f'\rProcessing result {i+1}/{len(fs)}: peak mem={mem_gb:.1f} GiB time={timer}/{predicted}', end='', flush=True)
-                sys.stdout.flush()
-
-                r = future.result()
-                if r is None:
-                    continue # transect is missing from this model or WCT failed
-
-                arr['start'][r.model_idx, r.transect_idx] = int((r.start - np.datetime64(0, 'D')) / np.timedelta64(1, 'D'))
-                arr['period'][r.model_idx, r.transect_idx, :r.j] = r.period.astype(np.float32)
-                arr['sig'][r.model_idx, r.transect_idx, :r.j] = r.sig.astype(np.float32)
-                arr['coi'][r.model_idx, r.transect_idx, :r.n] = r.coi.astype(np.float32)
+                try:
+                    timer.stop()
+                    elapsed = timer.ns
+                    predicted_time = elapsed / (i+1) * len(fs)
+                    predicted = util.Timer()
+                    predicted._start = timer._start
+                    predicted._end = predicted._start + predicted_time
+                    if i % 10 == 0:
+                        mem_gb = util.get_peak_mem() / 1024**3
+                    print(f'Processing result {i+1}/{len(fs)}: peak mem={mem_gb:.1f} GiB time={timer}/{predicted}')
+    
+                    r = future.result()
+                except Exception as e:
+                    print(e)
 
         print(f'\nFinished in {timer}')
 

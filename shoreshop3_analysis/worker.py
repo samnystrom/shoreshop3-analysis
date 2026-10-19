@@ -14,7 +14,7 @@ from shoreshop3_analysis import data, wavelet
 
 _coastsat_data: data.CoastsatData | None = None
 _models: data.MultiProfileModels | None = None
-_out: xr.Dataset | None = None
+_arr: zarr.Array | None = None
 
 
 @dataclass(frozen=True)
@@ -30,7 +30,7 @@ class WorkerResult:
     coi: np.ndarray
 
 
-def run(model: str, transect: str, ids: tuple[int, int]) -> WorkerResult | None:
+def run(model: str, transect: str, ids: tuple[int, int]) -> None: # WorkerResult | None:
     try:
         return _run_internal(model, transect, ids)
     except Exception as e:
@@ -38,14 +38,14 @@ def run(model: str, transect: str, ids: tuple[int, int]) -> WorkerResult | None:
         raise e
 
 
-def _run_internal(model: str, transect: str, idx: tuple[int, int]) -> WorkerResult | None:
+def _run_internal(model: str, transect: str, idx: tuple[int, int]) -> None: # WorkerResult | None:
     global _coastsat_data
     global _models
-    global _out
+    global _arr
     _coastsat_data = _coastsat_data or data.CoastsatData()
     _models = _models or data.MultiProfileModels()
     #_out = _out or xr.open_zarr(data.model_coherence_path, consolidated=False)
-    _out = _out or zarr.open_group(data.model_coherence_path, mode='r+', zarr_format=3)['coherence']
+    _arr = _arr or zarr.open_group(data.model_coherence_path, mode='r+', zarr_format=3)
 
     dt = 8
 
@@ -56,6 +56,9 @@ def _run_internal(model: str, transect: str, idx: tuple[int, int]) -> WorkerResu
     obs['date'] = obs['time'].dt.date
     model_data['date'] = model_data['time'].dt.date
     joined = obs.merge(model_data, on='date', how='inner', suffixes=('_obs', '_model'))
+    joined = joined.dropna(subset=['x_obs', 'x_model'])
+    if len(joined) < 4:
+        return None # too short for WCT
 
     wave = wavelet.WCT.fromdata(joined['time_obs'], joined['x_obs'].values, joined['x_model'].values, dt)
 
@@ -64,16 +67,14 @@ def _run_internal(model: str, transect: str, idx: tuple[int, int]) -> WorkerResu
 
     wct = wave.power()
     j, n = wct.shape
-    _out[*idx, :j, :n] = wct.astype(np.float32)
-    #_out.coherence[*idx, :j, :n] = wct.astype(np.float32)
-    #_out.to_zarr(
-    #    data.model_coherence_path,
-    #    region={'model': slice(idx[0], idx[0]+1), 'transect': slice(idx[1], idx[1]+1)},
-    #    consolidated=False,
-    #    zarr_format=3,
-    #)
+    _arr['coherence'][*idx, :j, :n] = wct.astype(np.float32)
 
-    period = wave.period()
     start = joined['time_obs'].values.min()
+    _arr['start'][*idx] = int((start - np.datetime64(0, 'D')) / np.timedelta64(1, 'D'))
+    _arr['period'][*idx, :j] = wave.period().astype(np.float64)
+    _arr['coi'][*idx, :n] = wave.coi().astype(np.float64)
+    _arr['sig'][*idx, :j] = wave.sig().astype(np.float64)
 
-    return WorkerResult(*idx, dt, start, n, j, period, wave.sig(), wave.coi())
+    print(f'done with {model} {transect}')
+
+    return None # WorkerResult(*idx, dt, start, n, j, period, wave.sig(), wave.coi())
