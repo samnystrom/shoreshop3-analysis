@@ -124,9 +124,9 @@ class MultiProfileWCT:
 
         start = int(self._ds.start[model_idx, transect_idx].values)
         start = np.datetime64(0, 'D') + np.timedelta64(start, 'D')
-        period = self._ds.period[model_idx, transect_idx, :j].values
+        period = self._ds.period[model_idx, transect_idx, :j].values.astype(np.float64)
         sig = self._ds.sig[model_idx, transect_idx, :j].values
-        coi = self._ds.coi[model_idx, transect_idx, :n].values
+        coi = self._ds.coi[model_idx, transect_idx, :n].values.astype(np.float64)
 
         times = start + (np.arange(n) * np.timedelta64(1, 'D'))
         times = pd.Series(times)

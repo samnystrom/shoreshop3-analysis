@@ -91,11 +91,11 @@ def time_regularize(
 
 def format_period(period: int | float) -> str:
     period = int(period)
-    units = [(365, 'year'), (30, 'month'), (7, 'week'), (0, 'day')]
+    units = [(365, 'year'), (30, 'month'), (1, 'day')]
     for length, unit in units:
-        if period > length:
+        if length == 1 or period > length:
             x = round(period / length)
-            return str(x) + ' ' + unit + ('s' if x > 1 else '')
+            return str(x) + ' ' + unit + ('s' if x != 1 else '')
     assert False, 'unreachable'
 
 
@@ -160,7 +160,7 @@ class WaveletResult(ABC):
         power[mask] = 0
         counts = np.count_nonzero(~mask, axis=1)
         # Ignore divide by zero, results in nan for scales with no valid data, which is desired behavior
-        with np.errstate(divide='ignore'):
+        with np.errstate(divide='ignore', invalid='ignore'):
             # An arithmetic mean in log space is equivalent to a geometric mean,
             # which is the right kind of mean for wavelet powers.
             mean = np.sum(power, axis=1) / counts
@@ -247,9 +247,8 @@ class CWT(WaveletResult):
     def __init__(self, times: pd.Series, x: np.ndarray, dt: float) -> None:
         self._dt = dt
         self._times = times
-        self._signal = x
 
-        n, dt, dj = x.size, 16, 1/12
+        n, dj = x.size, 1/12
         w0 = 6 # Morlet parameter
 
         # pycwt's grid: s0=-1 -> 2*dt/flambda, J=-1 -> round(log2(n*dt/s0)/dj)
@@ -258,10 +257,10 @@ class CWT(WaveletResult):
         J = int(np.round(np.log2(n * dt / s0) / dj))
         self._freqs = 1 / (flambda * s0 * 2 ** (np.arange(J + 1) * dj))
 
-        # zero-pad to the next power of two, as pycwt does internally
+        xd = pyleoclim.Series(np.arange(n) * dt, x, verbose=False).detrend(method='linear').value
+        self._signal = xd
         m = int(2 ** np.ceil(np.log2(n)))
-        t = np.arange(m) * dt
-        ts = pyleoclim.Series(t, np.concatenate([x, np.zeros(m - n)]), verbose=False).detrend(method='linear')
+        ts = pyleoclim.Series(np.arange(m) * dt, np.concatenate([xd, np.zeros(m - n)]), verbose=False)
         wave = ts.wavelet(method='cwt', freq=self._freqs, settings={'standardize': False, 'pad': False, 'mother': 'MORLET', 'param': w0})
 
         self._wave = np.asarray(wave.amplitude)[:n].T
