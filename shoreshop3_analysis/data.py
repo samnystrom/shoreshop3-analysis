@@ -31,7 +31,7 @@ input_frf_path = shoreshop_path / 'inputdata/hindcast_1980_2023/shorelines_and_p
 submissions_path = shoreshop_path / 'submissions/UserSubmissionsCleaned'
 
 
-datacubes_path = shoreshop_path / 'submissions/MIP_datacubes'
+datacubes_path = shoreshop_path / 'submissions/old/MIP_datacubes'
 duck_1871_2012_cube_path = datacubes_path / 'MIP_Duck_1871-2012.nc'
 duck_1980_2023_cube_path = datacubes_path / 'MIP_Duck_1980-2023.nc'
 duck_2024_2100_cube_path = datacubes_path / 'MIP_Duck_2024-2100.nc'
@@ -85,27 +85,6 @@ duck_1980_2023_paths = {
 }
 
 
-nc_1980_2023_paths = {
-    'BRIE': submissions_path / 'BRIE/mipNC_1980-2023-BRIE.csv',
-    'CCOST': submissions_path / 'CCOST/mipNC_1980-2023_DESM-reconstruction-CCOST.csv',
-    'CEERD-CHL-Devoe': submissions_path / 'CEERD-CHL-Devoe/mipNC_1980-2023_waves_simplified_ShoreFor_BruunSLR_CUDEMslope_ERDCCHL_SRD.csv',
-    'COCollective': submissions_path / 'COCollective/mipNC_1980-2023_CenturyHindcast-COCollective.csv',
-    'CoSMoS-COAST-conv_IA': submissions_path / 'CoSMoS-COAST_SV/NC/CoSMoS_COAST_conv_model_with_interannual/mipNC_1980-2023_CoSMoS_COAST_conv_model_with_interannual_SV.csv',
-    'CoSMoS-COAST-conv': submissions_path / 'CoSMoS-COAST_SV/NC/CoSMoS_COAST_conv_model_without_interannual/mipNC_1980-2023_CoSMoS_COAST_conv_model_without_interannual_SV.csv',
-    'CoSMoS-COAST-Vitousek_SciReports_2024': submissions_path / 'CoSMoS-COAST_SV/NC/CoSMoS_COAST_Vitousek_SciReports_2024_model/mipNC_1980-2023_CoSMoS_COAST_Vitousek_SciReports_2024_model_SV.csv',
-    'CoSMoS-COAST-CoastSat_trends': submissions_path / 'CoSMoS-COAST_SV/NC/CoastSat_trends/mipNC_1980-2023_CoastSat_trends_SV.csv',
-    'CoSMoS-COAST-CoastSat_trends_bruun_ssp585': submissions_path / 'CoSMoS-COAST_SV/NC/CoastSat_trends_plus_bruun_ssp585/mipNC_1980-2023_CoastSat_trends_plus_bruun_ssp585_SV.csv',
-    'CoSMoS-COAST-DSAS_trends': submissions_path / 'CoSMoS-COAST_SV/NC/DSAS_trends/mipNC_1980-2023_DSAS_SV.csv',
-    'CoSMoS-COAST-persistence': submissions_path / 'CoSMoS-COAST_SV/NC/persistence/mipNC_1980-2023_persistence_SV.csv',
-    'CRCHI': submissions_path / 'CRCHI/Ensemble_Run/mipNC_1980-2023_waves_simplified_smoothed_shorelines-CRCHI.csv',
-    'GEOOCEAN-cross_eps': submissions_path / 'GEOOCEAN/mipNC_1980-2023_GeoOcean_cross_eps_bulk_SLP_Qs_partitions_N.csv',
-    'ICM-TCN': submissions_path / 'ICM-TCN/mipNC_1980-2023_ICM-TCN_eof.csv',
-    'IdSOR': submissions_path / 'IdSOR/mipNC_1980-2023_WaveBulkParameters_IdSOR.csv',
-    'mtraboulsi689': submissions_path / 'mtraboulsi689/mipNC_1980-2023_waves_simplified-MohammadTraboulsi.csv',
-    'UNSW-WRL-Mao': submissions_path / 'UNSW-WRL-Mao/shoreshop3NC/mipNC_1980-2023_GraphShore.csv',
-}
-
-
 def load_profiles() -> gp.GeoDataFrame:
     # UTM zone 18N
     return gp.read_file(input_profiles_path).to_crs(epsg=26918)
@@ -114,6 +93,9 @@ def load_profiles() -> gp.GeoDataFrame:
 class CoastsatData:
     def __init__(self) -> None:
         self._ds = xr.open_zarr(coastsat_data_path, consolidated=False)
+
+    def get_range(self) -> tuple[np.datetime64, np.datetime64]:
+        return self._ds.time.min().values, self._ds.time.max().values
 
     def get_transects(self) -> list[str]:
         return [name.removeprefix('usa_NC_') for name in self._ds.transect.values]

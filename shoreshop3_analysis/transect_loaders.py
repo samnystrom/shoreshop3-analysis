@@ -50,7 +50,7 @@ class CoastsatLoader(TransectLoader):
     @override
     def get_wavelet(self, transect: str) -> wavelet.WaveletResult | None:
         df = self.get_timeseries(transect)
-        return wavelet.CWT(df['time'], df['x'].values, dt=16, dj=1/12, s0=-1, J=-1, wavelet='morlet', freqs=None)
+        return wavelet.CWT(df['time'], df['x'].values, dt=16)
 
 
 class ModelDataLoader(TransectLoader):
@@ -69,17 +69,14 @@ class ModelDataLoader(TransectLoader):
     @override
     def get_timeseries(self, transect: str) -> pd.DataFrame | None:
         data = self._models.get_model_transect_data(self._model, transect)
-        dropped = data.dropna()
-        if len(dropped) / len(data) < 0.25 or len(dropped) == 0:
-            return None
-        return dropped
+        return None if len(data) == 0 else data
 
     @override
     def get_wavelet(self, transect: str) -> wavelet.WaveletResult | None:
         df = self.get_timeseries(transect)
         if df is None:
             return None
-        return wavelet.CWT(df['time'], df['x'].values, dt=1, dj=1/12, s0=-1, J=-1, wavelet='morlet', freqs=None)
+        return wavelet.CWT(df['time'], df['x'].values, dt=1)
 
 
 class ModelWCTLoader(TransectLoader):
@@ -102,5 +99,3 @@ class ModelWCTLoader(TransectLoader):
     @override
     def get_wavelet(self, transect: str) -> wavelet.WaveletResult | None:
         return self._wct.get_wct(self._model, transect)
-        assert wct is not None, 'invalid model/transect combination given'
-        return wct

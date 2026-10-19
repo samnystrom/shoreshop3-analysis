@@ -11,7 +11,7 @@ from shoreshop3_analysis import data, wavelet, util
 
 
 def main() -> int:
-    dt = 16
+    dt = 8
 
     print('loading CSVs...', file=sys.stderr)
 

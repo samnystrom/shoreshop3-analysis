@@ -1,6 +1,13 @@
 import time
 
 
+def get_peak_mem() -> int:
+    with open('/proc/self/cgroup') as f:
+        cgroup = next(f).rstrip().split('/', 1)[1]
+    with open(f'/sys/fs/cgroup/{cgroup}/memory.peak') as f:
+        return int(next(f).rstrip())
+
+
 class Timer:
     def __init__(self) -> None:
         self._start = time.perf_counter_ns()

@@ -6,226 +6,131 @@ from concurrent import futures
 
 import numpy as np
 import pandas as pd
+import xarray as xr
+import dask.array
+import zarr
 
 from shoreshop3_analysis import util, data, worker, wavelet
 
 
 class MultiProfileWCT:
     def __init__(self) -> None:
-        self._path = data.datadir / 'models-nc-1980-2023-cwt.sqlite'
+        if data.model_coherence_path.exists():
+            self._ds = xr.open_zarr(data.model_coherence_path, consolidated=False)
+            return
 
-        self._conn = sqlite3.connect(self._path)
+        self._coastsat_data = data.CoastsatData()
+        self._models = data.MultiProfileModels()
+        all_models = self._models.get_models()
+        all_transects = self._models.get_all_transects()
+        M, T = len(all_models), len(all_transects)
 
-        self._conn.execute('pragma foreign_keys = on')
-        self._conn.execute('pragma cache_size = -4000000')
-        self._conn.execute('pragma mmap_size = 4000000000')
-        # benchmarks show no performance difference with larger pages and a
-        # very slight increase in storage space
-        # self._conn.execute('pragma page_size = 65536')
+        dt = 8
 
-        self._conn.executescript('''
-create table if not exists model(
-    id integer primary key,
-    name text unique not null
-);
+        n = 0
+        min_time, max_time = self._coastsat_data.get_range()
+        diff = (max_time - min_time) / np.timedelta64(1, 'D')
+        n = int(np.ceil(diff / dt))
 
-create table if not exists transect(
-    id integer primary key,
-    name text unique not null
-);
+        flambda = 4*np.pi / (6 + np.sqrt(2 + 6**2))
+        j = int(np.round(12 * np.log2(n * flambda / 2))) + 1
 
-create table if not exists metadata(
-    id integer primary key,
-    model_id integer references model not null,
-    transect_id integer references transect not null,
-    n integer not null, -- number of timesteps
-    j integer not null, -- number of scales
-    dt real not null, -- days
-    dates text not null, -- JSON array length N of iso8601 dates
-    freq blob, -- size J, LE, float64
-    sig blob, -- size J, LE, float64
-    coi blob, -- size N, LE, float64
-    unique(model_id, transect_id)
-);
+        self._ds = xr.Dataset(
+            data_vars={
+                'start':     (('model', 'transect'),          np.full((M, T), 0, dtype=int)),
+                'period':    (('model', 'transect', 'scale'), np.full((M, T, j), np.nan, dtype=np.float32)),
+                'sig':       (('model', 'transect', 'scale'), np.full((M, T, j), np.nan, dtype=np.float32)),
+                'coi':       (('model', 'transect', 'time'),  np.full((M, T, n), np.nan, dtype=np.float32)),
+                'coherence': (('model', 'transect', 'scale', 'time'), dask.array.full((M, T, j, n), np.nan, dtype=np.float32, chunks=(1, 1, j, n))),
+            },
+            coords={
+                'model': all_models,
+                'transect': all_transects,
+                'time': np.arange(n),
+                'scale': np.arange(j),
+            },
+            attrs={
+                'title': '',
+                'source': '',
+                'dt': dt,
+            },
+        )
+        encoding = {
+            'start': {'chunks': (1, 10)},
+            'period': {'chunks': (1, 10, j)},
+            'sig': {'chunks': (1, 10, j)},
+            'coi': {'chunks': (1, 10, n)},
+        }
+        self._ds.to_zarr(data.model_coherence_path, compute=False, consolidated=False, zarr_format=3, encoding=encoding)
 
--- sqlite can't jump into the middle of a large row without reading everything in front,
--- so storing the large blobs in their own tables ensures access remains fast.
-
-create table if not exists wct(
-    id integer primary key references metadata,
-    wct blob -- shape (J,N), LE, row-major, float64
-);
-
-create table if not exists awct(
-    id integer primary key references metadata,
-    awct blob -- shape (J,N), LE, row-major, float64
-);
-''')
-
-    def compute(self, progress: bool = True) -> None:
-        if progress:
-            timer = util.Timer()
-            init_timer = util.Timer()
-            print('Initializing...')
+    def compute(self) -> None:
+        timer = util.Timer()
+        print('Initializing...')
 
         coastsat_data = data.CoastsatData()
-        coastsat_data.populate()
-        models = data.MultiProfileModels(scratchdir='/scratch')
-        models.populate(progress=False)
+        models = data.MultiProfileModels()
 
-        if progress:
-            init_timer.stop()
-            print(f'Initialization finished in {init_timer}')
+        arr = zarr.open_group(data.model_coherence_path, mode='r+', zarr_format=3)
 
-        params = [(transect, ) for transect in list(models.get_all_transects())]
-        with self._conn:
-            self._conn.executemany('''
-                insert or ignore into transect (name) values (?)
-            ''', params)
+        mem_gb = util.get_peak_mem() / 1024**3
 
-        with futures.ProcessPoolExecutor(
-            max_workers=os.process_cpu_count()-1,
-            initializer=worker.init,
-        ) as executor:
-            rows = self._conn.execute('''
-                select model.name, transect.name
-                from metadata
-                    join model on metadata.model_id = model.id
-                    join transect on metadata.transect_id = transect.id
-            ''').fetchall()
-            completed_pairs = set(rows)
-
+        with futures.ProcessPoolExecutor(max_workers=os.process_cpu_count()-1) as executor:
             fs = []
-            for model in models.get_models():
-                with self._conn:
-                    self._conn.execute('''
-                        insert or ignore into model (name) values (?)
-                    ''', (model, ))
-
-                for transect in models.get_transects(model):
-                    if (model, transect) not in completed_pairs:
-                        fs.append(executor.submit(worker.run, model, transect))
+            all_models = models.get_models()
+            all_transects = models.get_all_transects()
+            for i, j in np.array(np.isnan(self._ds.period[:, :, 0].values).nonzero()).T:
+                fs.append(executor.submit(worker.run, all_models[i], all_transects[j], (i, j)))
 
             for i, future in enumerate(futures.as_completed(fs)):
-                if progress:
-                    elapsed = time.perf_counter() - start
-                    predicted_time = elapsed / (i+1) * len(fs)
-                    elapsed_s = format_duration(elapsed)
-                    predicted_s = format_duration(predicted_time)
-                    print(f'\rProcessing result {i+1}/{len(fs)}: {elapsed_s}/{predicted_s}', end='', flush=True)
-                    sys.stdout.flush()
+                timer.stop()
+                elapsed = timer.ns
+                predicted_time = elapsed / (i+1) * len(fs)
+                predicted = util.Timer()
+                predicted._start = timer._start
+                predicted._end = predicted._start + predicted_time
+                if i % 10 == 0:
+                    mem_gb = util.get_peak_mem() / 1024**3
+                print(f'\rProcessing result {i+1}/{len(fs)}: peak mem={mem_gb:.1f} GiB time={timer}/{predicted}', end='', flush=True)
+                sys.stdout.flush()
 
-                result = future.result()
-                if result is None:
+                r = future.result()
+                if r is None:
                     continue # transect is missing from this model or WCT failed
-                model, transect, dt, dates, wct, awct, coi, freq, sig = result
-                j, n = wct.shape
-                dtype = np.dtype('<d') # little-endian float64
-                wct = np.ascontiguousarray(wct, dtype=dtype).data
-                awct = np.ascontiguousarray(awct, dtype=dtype).data
-                coi = np.ascontiguousarray(coi, dtype=dtype).data
-                freq = np.ascontiguousarray(freq, dtype=dtype).data
-                sig = np.ascontiguousarray(sig, dtype=dtype).data
-                with self._conn:
-                    rowid = self._conn.execute('''
-                        insert into metadata
-                            (model_id, transect_id, n, j, dt, dates, freq, sig, coi)
-                        values (
-                            (select id from model where name = :model),
-                            (select id from transect where name = :transect),
-                            :n,
-                            :j,
-                            :dt,
-                            :dates,
-                            zeroblob(:j*8),
-                            zeroblob(:j*8),
-                            zeroblob(:n*8)
-                        )
-                    ''', {
-                        'model': model,
-                        'transect': transect,
-                        'n': n,
-                        'j': j,
-                        'dt': dt,
-                        'dates': dates,
-                    }).lastrowid
-    
-                    with self._conn.blobopen('metadata', 'freq', rowid) as blob:
-                        blob.write(freq)
-                    with self._conn.blobopen('metadata', 'sig', rowid) as blob:
-                        blob.write(sig)
-                    with self._conn.blobopen('metadata', 'coi', rowid) as blob:
-                        blob.write(coi)
-    
-                    self._conn.execute('''
-                        insert into wct (id, wct) values (?, zeroblob(?))
-                    ''', (rowid, n*j*8))
-                    with self._conn.blobopen('wct', 'wct', rowid) as blob:
-                        blob.write(wct)
-    
-                    self._conn.execute('''
-                        insert into awct (id, awct) values (?, zeroblob(?))
-                    ''', (rowid, n*j*8))
-                    with self._conn.blobopen('awct', 'awct', rowid) as blob:
-                        blob.write(awct)
 
-        if progress:
-            print(f'\nFinished in {timer}')
+                arr['start'][r.model_idx, r.transect_idx] = int((r.start - np.datetime64(0, 'D')) / np.timedelta64(1, 'D'))
+                arr['period'][r.model_idx, r.transect_idx, :r.j] = r.period.astype(np.float32)
+                arr['sig'][r.model_idx, r.transect_idx, :r.j] = r.sig.astype(np.float32)
+                arr['coi'][r.model_idx, r.transect_idx, :r.n] = r.coi.astype(np.float32)
+
+        print(f'\nFinished in {timer}')
 
     def get_models(self) -> list[str]:
-        return [name for name, in self._conn.execute('select name from model').fetchall()]
+        return self._ds.model.values.tolist()
 
     def get_transects(self, model: str) -> list[str]:
-        rows = self._conn.execute('''
-            select transect.name
-            from metadata
-                join model on metadata.model_id = model.id
-                join transect on metadata.transect_id = transect.id
-            where model.name = ?
-        ''', (model, )).fetchall()
-        return [name for name, in rows]
+        return self._ds.transect.values.tolist()
 
     def get_all_transects(self) -> list[str]:
-        return [name for name, in self._conn.execute('select name from transect').fetchall()]
+        return self._ds.transect.values.tolist()
 
     def get_wct(self, model: str, transect: str) -> wavelet.WCT | None:
-        row = self._conn.execute('''
-            select metadata.id, n, j, dt, dates
-            from metadata
-                join model on metadata.model_id = model.id
-                join transect on metadata.transect_id = transect.id
-            where model.name = ? and transect.name = ?
-        ''', (model, transect)).fetchone()
-        if row is None:
-            return None
-        rowid, n, j, dt, dates = row
+        model_idx = self.get_models().index(model)
+        transect_idx = self.get_all_transects().index(transect)
 
-        dates = pd.Series(json.loads(dates))
+        coh = self._ds.coherence[model_idx, transect_idx, :, :].values
+        n = len(coh[0][~np.isnan(coh[0])])
+        coh = coh[~np.isnan(coh)].reshape((-1, n))
+        j, n = coh.shape
 
-        dtype = np.dtype('<d') # little-endian float64
-        with self._conn.blobopen('metadata', 'freq', rowid) as blob:
-            freq = np.frombuffer(blob.read(), dtype=dtype, count=j)
-        with self._conn.blobopen('metadata', 'sig', rowid) as blob:
-            sig = np.frombuffer(blob.read(), dtype=dtype, count=j)
-        with self._conn.blobopen('metadata', 'coi', rowid) as blob:
-            coi = np.frombuffer(blob.read(), dtype=dtype, count=n)
+        start = int(self._ds.start[model_idx, transect_idx].values)
+        start = np.datetime64(0, 'D') + np.timedelta64(start, 'D')
+        period = self._ds.period[model_idx, transect_idx, :j].values
+        sig = self._ds.sig[model_idx, transect_idx, :j].values
+        coi = self._ds.coi[model_idx, transect_idx, :n].values
 
-        with self._conn.blobopen('wct', 'wct', rowid) as blob:
-            wct = np.frombuffer(blob.read(), dtype=dtype, count=j*n).reshape((j, n))
-        with self._conn.blobopen('awct', 'awct', rowid) as blob:
-            awct = np.frombuffer(blob.read(), dtype=dtype, count=j*n).reshape((j, n))
+        times = start + (np.arange(n) * np.timedelta64(1, 'D'))
+        times = pd.Series(times)
 
-        if dtype.byteorder != '=':
-            freq.byteswap(inplace=True)
-            sig.byteswap(inplace=True)
-            coi.byteswap(inplace=True)
-            wct.byteswap(inplace=True)
-            awct.byteswap(inplace=True)
-            freq.dtype = np.float64
-            sig.dtype = np.float64
-            coi.dtype = np.float64
-            wct.dtype = np.float64
-            awct.dtype = np.float64
+        dt = 8
 
-        return wavelet.WCT(dt, dates, wct, awct, coi, freq, sig)
-
+        return wavelet.WCT(dt, times, coh, coi, 1 / period, sig)

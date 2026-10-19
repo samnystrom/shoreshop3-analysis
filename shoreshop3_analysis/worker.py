@@ -1,68 +1,79 @@
 import json
 import time
 import sys
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
-import pycwt
+import xarray as xr
+import zarr
+from pyleoclim import Series
 
 from shoreshop3_analysis import data, wavelet
 
 
 _coastsat_data: data.CoastsatData | None = None
 _models: data.MultiProfileModels | None = None
+_out: xr.Dataset | None = None
 
 
-def init() -> None:
+@dataclass(frozen=True)
+class WorkerResult:
+    model_idx: int
+    transect_idx: int
+    dt: float
+    start: np.datetime64
+    n: int
+    j: int
+    period: np.ndarray
+    sig: np.ndarray
+    coi: np.ndarray
+
+
+def run(model: str, transect: str, ids: tuple[int, int]) -> WorkerResult | None:
+    try:
+        return _run_internal(model, transect, ids)
+    except Exception as e:
+        print(e)
+        raise e
+
+
+def _run_internal(model: str, transect: str, idx: tuple[int, int]) -> WorkerResult | None:
     global _coastsat_data
     global _models
-    _coastsat_data = data.CoastsatData()
-    _models = data.MultiProfileModels(scratchdir='/scratch')
+    global _out
+    _coastsat_data = _coastsat_data or data.CoastsatData()
+    _models = _models or data.MultiProfileModels()
+    #_out = _out or xr.open_zarr(data.model_coherence_path, consolidated=False)
+    _out = _out or zarr.open_group(data.model_coherence_path, mode='r+', zarr_format=3)['coherence']
 
-
-def run(model: str, transect: str) -> tuple[float, list[str], np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None:
-    assert _coastsat_data is not None and _models is not None
-
-    #start = time.perf_counter()
-
-    dt = 8.0
+    dt = 8
 
     obs = _coastsat_data.get_single(transect)
-    obs_interp = wavelet.time_regularize(obs, dt=dt)
-    model_data = _models.get_model_transect_data(model, transect).dropna()
+    model_data = _models.get_model_transect_data(model, transect)
     if len(model_data) == 0: # this transect isn't present for the model
         return None
-    joined = obs_interp.merge(model_data, on='date', how='inner', suffixes=('_obs', '_model'))
+    obs['date'] = obs['time'].dt.date
+    model_data['date'] = model_data['time'].dt.date
+    joined = obs.merge(model_data, on='date', how='inner', suffixes=('_obs', '_model'))
 
-    try:
-        wct, awct, coi, freq, sig = pycwt.wct(
-            joined['x_obs'].values,
-            joined['x_model'].values,
-            dt=dt,
-            dj=1/12,
-            s0=-1,
-            J=-1,
-            sig=False,
-            significance_level=0.95,
-            wavelet='morlet',
-            normalize=True,
-            #mc_count=20,
-            cache=False,
-        )
-    except e:
-        # AR(1) warning
-        with open('badcount', 'ab') as f:
-            f.write(b'\0')
-        print(e)
-        return None
+    wave = wavelet.WCT.fromdata(joined['time_obs'], joined['x_obs'].values, joined['x_model'].values, dt)
 
-    if np.isnan(wct).any():
+    if np.isnan(wave._wct).any():
         print(f'Warning: NaN WCT result for model={model} transect={transect}', file=sys.stderr)
 
-    sig = np.zeros(freq.shape[0])
+    wct = wave.power()
+    j, n = wct.shape
+    _out[*idx, :j, :n] = wct.astype(np.float32)
+    #_out.coherence[*idx, :j, :n] = wct.astype(np.float32)
+    #_out.to_zarr(
+    #    data.model_coherence_path,
+    #    region={'model': slice(idx[0], idx[0]+1), 'transect': slice(idx[1], idx[1]+1)},
+    #    consolidated=False,
+    #    zarr_format=3,
+    #)
 
-    #elapsed = time.perf_counter() - start
-    #print(f'{model} {transect} took {elapsed:.3f} s: {len(joined)}')
+    period = wave.period()
+    start = joined['time_obs'].values.min()
 
-    dates = json.dumps(list(joined['date'].values))
-
-    return (model, transect, dt, dates, wct, awct, coi, freq, sig)
+    return WorkerResult(*idx, dt, start, n, j, period, wave.sig(), wave.coi())

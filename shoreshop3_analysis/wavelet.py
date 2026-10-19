@@ -7,7 +7,7 @@ import pandas as pd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import plotnine as pn
-import pycwt
+import pyleoclim
 
 
 def time_regularize(
@@ -91,17 +91,12 @@ def time_regularize(
 
 def format_period(period: int | float) -> str:
     period = int(period)
-    if period > 365:
-        years = round(period / 365)
-        return f'{years} year' + ('s' if years > 1 else '')
-    elif period > 30:
-        months = round(period / 30)
-        return f'{months} month' + ('s' if months > 1 else '')
-    elif period > 7:
-        weeks = round(period / 7)
-        return f'{weeks} week' + ('s' if weeks > 1 else '')
-    else:
-        return f'{period} day' + ('s' if period > 1 else '')
+    units = [(365, 'year'), (30, 'month'), (7, 'week'), (0, 'day')]
+    for length, unit in units:
+        if period > length:
+            x = round(period / length)
+            return str(x) + ' ' + unit + ('s' if x > 1 else '')
+    assert False, 'unreachable'
 
 
 class WaveletResult(ABC):
@@ -138,11 +133,22 @@ class WaveletResult(ABC):
         pass
 
     @abstractmethod
+    def sig(self) -> np.ndarray | None:
+        '''
+        Returns: ndarray shape J
+        '''
+        pass
+
+    @abstractmethod
     def xlabel(self, x) -> str:
         pass
 
     @abstractmethod
     def colorbar_label(self) -> str:
+        pass
+
+    @abstractmethod
+    def colorbar_limits(self) -> tuple[float, float] | None:
         pass
 
     def global_power(self, dropnan: bool = False) -> np.ndarray:
@@ -194,8 +200,8 @@ class WaveletResult(ABC):
         period_lim = (np.min(period), np.max(period))
 
         timeseries = self.timeseries()
-        timeseries['t'] = t
         if timeseries is not None:
+            timeseries['t'] = t
             timeseries_plot = (
                 pn.ggplot(timeseries)
                 + pn.geom_line(pn.aes('t', 'x', group=1))
@@ -208,7 +214,7 @@ class WaveletResult(ABC):
             pn.ggplot(data)
             + pn.geom_raster(pn.aes('t', 'period', fill='power'))
             + pn.geom_polygon(pn.aes('x', 'y'), data=coi, fill='white', color='black', alpha=0.5)
-            + pn.scale_fill_continuous(cmap_name='viridis')
+            + pn.scale_fill_continuous(cmap_name='viridis', limits=self.colorbar_limits())
             + time_scale
             + period_scale
             + pn.coord_cartesian(xlim=(0, n), ylim=period_lim)
@@ -232,19 +238,34 @@ class WaveletResult(ABC):
 class CWT(WaveletResult):
     _dt: float
     _times: pd.Series
+    _series: pyleoclim.Series
     _signal: np.ndarray # shape: N
     _wave: np.ndarray # shape: J, N
-    _scales: np.ndarray # shape: J
     _freqs: np.ndarray # shape: J
     _coi: np.ndarray # shape: N
-    _fft: np.ndarray
-    _fftfreqs: np.ndarray
 
-    def __init__(self, times: pd.Series, signal: np.ndarray, dt: float, *args, **kwargs) -> None:
+    def __init__(self, times: pd.Series, x: np.ndarray, dt: float) -> None:
         self._dt = dt
         self._times = times
-        self._signal = signal
-        self._wave, self._scales, self._freqs, self._coi, self._fft, self._fftfreqs = pycwt.cwt(signal, dt, *args, **kwargs)
+        self._signal = x
+
+        n, dt, dj = x.size, 16, 1/12
+        w0 = 6 # Morlet parameter
+
+        # pycwt's grid: s0=-1 -> 2*dt/flambda, J=-1 -> round(log2(n*dt/s0)/dj)
+        flambda = 4 * np.pi / (w0 + np.sqrt(2 + w0**2))   # Fourier factor of the Morlet wavelet
+        s0 = 2 * dt / flambda
+        J = int(np.round(np.log2(n * dt / s0) / dj))
+        self._freqs = 1 / (flambda * s0 * 2 ** (np.arange(J + 1) * dj))
+
+        # zero-pad to the next power of two, as pycwt does internally
+        m = int(2 ** np.ceil(np.log2(n)))
+        t = np.arange(m) * dt
+        ts = pyleoclim.Series(t, np.concatenate([x, np.zeros(m - n)]), verbose=False).detrend(method='linear')
+        wave = ts.wavelet(method='cwt', freq=self._freqs, settings={'standardize': False, 'pad': False, 'mother': 'MORLET', 'param': w0})
+
+        self._wave = np.asarray(wave.amplitude)[:n].T
+        self._coi = flambda / np.sqrt(2) * dt * (n / 2 - np.abs(np.arange(n) - (n - 1) / 2))
 
     @override
     def dt(self) -> float:
@@ -256,7 +277,8 @@ class CWT(WaveletResult):
 
     @override
     def power(self) -> np.ndarray:
-        return np.log2(np.abs(self._wave) ** 2)
+        return np.log2(self._wave)
+        #return np.log2(np.abs(self._wave) ** 2)
 
     @override
     def period(self) -> np.ndarray:
@@ -265,6 +287,10 @@ class CWT(WaveletResult):
     @override
     def coi(self) -> np.ndarray:
         return self._coi
+
+    @override
+    def sig(self) -> np.ndarray | None:
+        return None
 
     @override
     def xlabel(self, x) -> str:
@@ -277,25 +303,56 @@ class CWT(WaveletResult):
     def colorbar_label(self) -> str:
         return 'Power ($\\log_2$)'
 
+    @override
+    def colorbar_limits(self) -> tuple[float, float] | None:
+        return None
+
 
 class WCT(WaveletResult):
     _dt: float
     _times: pd.Series
     _wct: np.ndarray # shape: J, N
-    _awct: np.ndarray # shape: J, N
     _coi: np.ndarray # shape: N
     _freq: np.ndarray # shape: J
     _sig: np.ndarray # shape: J
 
     @classmethod
-    def fromdata(cls, times: pd.Series, y1: np.ndarray, y2: np.ndarray, dt: float, *args, **kwargs) -> Self:
-        return cls(dt, times, *pycwt.wct(y1, y2, dt, *args, **kwargs))
+    def fromdata(cls, times: pd.Series, x: np.ndarray, y: np.ndarray, dt: float, dj: float = 1/12, w0: int = 6) -> Self:
+        n = x.size
+        flambda = 4 * np.pi / (w0 + np.sqrt(2 + w0**2))
+        s0 = 2 * dt / flambda
+        J = int(np.round(np.log2(n * dt / s0) / dj))
+        freqs = 1 / (flambda * s0 * 2 ** (np.arange(J + 1) * dj))
+        coi = flambda / np.sqrt(2) * dt * (n / 2 - np.abs(np.arange(n) - (n - 1) / 2))
 
-    def __init__(self, dt: float, times: pd.Series, wct: np.ndarray, awct: np.ndarray, coi: np.ndarray, freq: np.ndarray, sig: np.ndarray) -> None:
+        t = np.arange(n) * dt
+        sx = pyleoclim.Series(time=t, value=x, verbose=False).detrend(method='linear')
+        sy = pyleoclim.Series(time=t, value=y, verbose=False).detrend(method='linear')
+        coh = sx.wavelet_coherence(sy, method='cwt', settings={
+            'freq': np.sort(freqs), 'pad': False, 'standardize': True,
+            'smooth_factor': 0.5, 'mother': 'MORLET', 'param': w0})
+        order = np.argsort(np.asarray(coh.frequency))[::-1] # pycwt's scale order
+        wct = np.asarray(coh.wtc).T[order]
+        freq = np.asarray(coh.frequency)[order]
+
+        settings = {'freq': np.sort(freqs), 'pad': False, 'smooth_factor': 0.5,
+                    'mother': 'MORLET', 'param': w0}
+
+        np.random.seed(0)
+        st = coh.signif_test(number=100, method='ar1sim', qs=[0.95], mute_pbar=True, nproc=1)
+        thr = np.asarray(st.signif_qs[0].scalogram_list[0].amplitude).T[order]
+        valid = (1 / freq)[:, np.newaxis] < coi[np.newaxis, :]
+        has_valid = valid.any(axis=1)
+        sig = np.full(thr.shape[0], np.nan)
+        sig[has_valid] = np.nanmedian(np.where(valid[has_valid], thr[has_valid], np.nan), axis=1)
+        sig[~has_valid] = np.nanmedian(thr[~has_valid], axis=1)
+
+        return cls(dt, times, wct, coi, freq, sig)
+
+    def __init__(self, dt: float, times: pd.Series, wct: np.ndarray, coi: np.ndarray, freq: np.ndarray, sig: np.ndarray) -> None:
         self._dt = dt
         self._times = times
         self._wct = wct
-        self._awct = awct
         self._coi = coi
         self._freq = freq
         self._sig = sig
@@ -321,6 +378,10 @@ class WCT(WaveletResult):
         return self._coi
 
     @override
+    def sig(self) -> np.ndarray | None:
+        return self._sig
+
+    @override
     def xlabel(self, x) -> str:
         idx = int(round(x))
         if 0 <= idx < len(self._times):
@@ -331,3 +392,6 @@ class WCT(WaveletResult):
     def colorbar_label(self) -> str:
         return 'Coherence ($R^2$)'
 
+    @override
+    def colorbar_limits(self) -> tuple[float, float] | None:
+        return (0.0, 1.0)
