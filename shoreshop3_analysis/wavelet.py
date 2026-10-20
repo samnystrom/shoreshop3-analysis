@@ -8,6 +8,8 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import plotnine as pn
 import pyleoclim
+import skimage
+import scipy
 
 
 def time_regularize(
@@ -107,7 +109,14 @@ class WaveletResult(ABC):
     @abstractmethod
     def timeseries(self) -> pd.DataFrame | None:
         '''
-        Returns: dataframe with columns date (iso8601 str), x (float), or None if n/a
+        Returns: dataframe with columns group, date (iso8601 str), x (float); or None if n/a
+        '''
+        pass
+
+    @abstractmethod
+    def trend(self) -> pd.DataFrame:
+        '''
+        Returns: dataframe with columns group, a, b for y=ax+b
         '''
         pass
 
@@ -173,7 +182,7 @@ class WaveletResult(ABC):
         j, n = power.shape
         period = np.log2(self.period())
         #global_power = self.global_power(dropnan=True)
-        t = np.arange(0, n, 1)
+        t = np.arange(n)
 
         data = pd.DataFrame({
             'period': np.repeat(period, n),
@@ -199,20 +208,54 @@ class WaveletResult(ABC):
         period_scale = pn.scale_y_continuous(expand=(0, 0), labels=lambda breaks: [format_period(int(2**y)) for y in breaks])
         period_lim = (np.min(period), np.max(period))
 
+        sig = self.sig()
+        contours_geom = pn.geom_blank()
+        if sig is not None:
+            mask = power > sig[:, np.newaxis]
+            sigma = 1
+            # different blur for the two differently-scaled axes
+            sigma = sigma, sigma / (j / n * 2)
+            pad = int(3 * sigma[1])
+            padded = np.pad(mask.astype(float), pad, constant_values=0.0)
+            soft = scipy.ndimage.gaussian_filter(padded, sigma=sigma)
+
+            dfs = []
+            for i, c in enumerate(skimage.measure.find_contours(soft, 0.5)):
+                dfs.append(pd.DataFrame({
+                    'group': i,
+                    'x': c[:, 1] - 1 - pad,
+                    'y': (c[:, 0] - 1 - pad) / (j - 1) * (period_lim[1] - period_lim[0]) + period_lim[0],
+                }))
+            contours = pd.concat(dfs, ignore_index=True)
+
+            contours_geom = pn.geom_polygon(
+                pn.aes('x', 'y', group='group'),
+                data=contours,
+                color='k',
+                #fill='white',
+                alpha=0.0,
+            )
+
         timeseries = self.timeseries()
         if timeseries is not None:
             timeseries['t'] = t
+            trend = self.trend()
+            trend['b'] = -trend['a'] * n / 2
             timeseries_plot = (
                 pn.ggplot(timeseries)
                 + pn.geom_line(pn.aes('t', 'x', group=1))
+                + pn.geom_abline(pn.aes(slope='a', intercept='b', color='"Trend (removed)"'), data=trend)
+                + pn.scale_color_manual({'Trend (removed)': 'tab:red'}, name='')
                 #+ pn.scale_x_date(date_breaks='5 years', date_labels='%Y')
                 + time_scale
                 + pn.labs(x='', y='Shoreline position (m)')
+                + pn.theme(legend_title=pn.element_blank())
             )
 
         scalogram = (
             pn.ggplot(data)
             + pn.geom_raster(pn.aes('t', 'period', fill='power'))
+            + contours_geom
             + pn.geom_polygon(pn.aes('x', 'y'), data=coi, fill='white', color='black', alpha=0.5)
             + pn.scale_fill_continuous(cmap_name='viridis', limits=self.colorbar_limits())
             + time_scale
@@ -238,7 +281,8 @@ class WaveletResult(ABC):
 class CWT(WaveletResult):
     _dt: float
     _times: pd.Series
-    _series: pyleoclim.Series
+    _slope: float
+    _intercept: float
     _signal: np.ndarray # shape: N
     _wave: np.ndarray # shape: J, N
     _freqs: np.ndarray # shape: J
@@ -257,8 +301,11 @@ class CWT(WaveletResult):
         J = int(np.round(np.log2(n * dt / s0) / dj))
         self._freqs = 1 / (flambda * s0 * 2 ** (np.arange(J + 1) * dj))
 
-        xd = pyleoclim.Series(np.arange(n) * dt, x, verbose=False).detrend(method='linear').value
+        t = np.arange(n) * dt
+        self._slope, self._intercept = np.polyfit(t, x, 1)
+        xd = x - (self._slope * t + self._intercept)
         self._signal = xd
+
         m = int(2 ** np.ceil(np.log2(n)))
         ts = pyleoclim.Series(np.arange(m) * dt, np.concatenate([xd, np.zeros(m - n)]), verbose=False)
         wave = ts.wavelet(method='cwt', freq=self._freqs, settings={'standardize': False, 'pad': False, 'mother': 'MORLET', 'param': w0})
@@ -273,6 +320,13 @@ class CWT(WaveletResult):
     @override
     def timeseries(self) -> pd.DataFrame:
         return pd.DataFrame({'time': self._times, 'x': self._signal})
+
+    @override
+    def trend(self) -> pd.DataFrame:
+        return pd.DataFrame({
+            'a': [self._slope],
+            'b': [self._intercept],
+        })
 
     @override
     def power(self) -> np.ndarray:
@@ -310,6 +364,12 @@ class CWT(WaveletResult):
 class WCT(WaveletResult):
     _dt: float
     _times: pd.Series
+    #_x: np.ndarray
+    #_y: np.ndarray
+    #_x_slope: float
+    #_x_intercept: float
+    #_y_slope: float
+    #_y_intercept: float
     _wct: np.ndarray # shape: J, N
     _coi: np.ndarray # shape: N
     _freq: np.ndarray # shape: J
@@ -325,8 +385,14 @@ class WCT(WaveletResult):
         coi = flambda / np.sqrt(2) * dt * (n / 2 - np.abs(np.arange(n) - (n - 1) / 2))
 
         t = np.arange(n) * dt
-        sx = pyleoclim.Series(time=t, value=x, verbose=False).detrend(method='linear')
-        sy = pyleoclim.Series(time=t, value=y, verbose=False).detrend(method='linear')
+        
+        ax, bx = np.polyfit(t, x, 1)
+        ay, by = np.polyfit(t, y, 1)
+        xd = x - (ax * t + bx)
+        yd = y - (ay * t + by)
+
+        sx = pyleoclim.Series(time=t, value=xd, verbose=False)
+        sy = pyleoclim.Series(time=t, value=yd, verbose=False)
         coh = sx.wavelet_coherence(sy, method='cwt', settings={
             'freq': np.sort(freqs), 'pad': False, 'standardize': True,
             'smooth_factor': 0.5, 'mother': 'MORLET', 'param': w0})
@@ -359,6 +425,13 @@ class WCT(WaveletResult):
     @override
     def timeseries(self) -> pd.DataFrame | None:
         return None
+
+    @override
+    def trend(self) -> pd.DataFrame:
+        return pd.DataFrame({
+            'a': [self._x_slope, self._y_slope],
+            'b': [self._x_intercept, self._y_intercept],
+        })
 
     @override
     def dt(self) -> float:

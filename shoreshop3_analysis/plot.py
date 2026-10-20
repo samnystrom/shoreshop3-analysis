@@ -128,6 +128,10 @@ def _plot_multi_transect(
         })
         dfs.append(df)
 
+    cbar_limits = wave.colorbar_limits()
+    if cbar_limits is not None:
+        min_power, max_power = cbar_limits
+
     if len(dfs) == 0:
         return pn.ggplot()
 
@@ -190,7 +194,11 @@ def _plot_multi_transect(
         pn.ggplot(global_powers)
         + pn.geom_tile(pn.aes('period', 'northing', fill='power', height=tile_height))
         + spectrum_labels
-        + pn.scale_fill_continuous(breaks=np.linspace(min_power, max_power, 5), cmap_name='viridis')
+        + pn.scale_fill_continuous(
+            limits=wave.colorbar_limits(),
+            breaks=np.linspace(min_power, max_power, 5),
+            cmap_name='viridis',
+        )
         + pn.scale_x_log10(
             breaks=[2, 17, 31*3, 367, 366*4, 366*14],
             labels=lambda breaks: list(map(wavelet.format_period, breaks)),
