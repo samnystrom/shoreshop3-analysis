@@ -5,6 +5,7 @@ from concurrent import futures
 
 import numpy as np
 import plotnine as pn
+import matplotlib.pyplot as plt
 
 from shoreshop3_analysis import data, wct, wavelet, transect_loaders
 
@@ -19,21 +20,23 @@ def _year(dt: np.datetime64) -> int:
 
 
 def run(model: str, transect: str) -> None:
-    global _coastsat
+    global _obs
     global _models
     global _wcts
-    _obs = _obs or data.Observations()
     _models = _models or data.Models()
-    _wcts = _wcts or wct.ModelsWCT()
+    try:
+        _obs = _obs or data.Observations()
+        _wcts = _wcts or wct.ModelsWCT()
+    except FileNotFoundError:
+        pass
 
     power_path = data.scalograms_path / 'power' / model / f'{transect}.png'
     coherence_path = data.scalograms_path / 'coherence' / model / f'{transect}.png'
     os.makedirs(power_path.parent, exist_ok=True)
-    os.makedirs(coherence_path.parent, exist_ok=True)
 
     if not power_path.exists():
-        if model == _obs.name():
-            loader = transect_loaders.ObservationsLoader(_coastsat)
+        if _obs is not None and model == _obs.name():
+            loader = transect_loaders.ObservationsLoader(_obs)
         else:
             loader = transect_loaders.ModelsLoader(_models, model)
         w = loader.get_wavelet(transect)
@@ -42,8 +45,9 @@ def run(model: str, transect: str) -> None:
             lower, upper = map(_year, _models.get_range())
             p.items[0] += pn.labs(title=f'Wavelet Power Spectrum ({lower}-{upper}): {model} {transect}')
             p.save(power_path)
-    
-    if not coherence_path.exists() and model != 'FRF':
+
+    if _wcts is not None and not coherence_path.exists() and model != _obs.name():
+        os.makedirs(coherence_path.parent, exist_ok=True)
         loader = transect_loaders.ModelWCTLoader(_wcts, model)
         w = loader.get_wavelet(transect)
         if w is not None:
@@ -51,6 +55,8 @@ def run(model: str, transect: str) -> None:
             lower, upper = map(_year, _wcts.get_range())
             p += pn.labs(title=f'Wavelet Coherence ({lower}-{upper}): {model} {transect}')
             p.save(coherence_path)
+
+    plt.close()
 
     print(f'finished: {model} {transect}')
 
@@ -64,17 +70,24 @@ def main(args: list[str]) -> int:
         task = int(args[1])
         ntasks = int(args[2])
 
-    obs = data.Observations()
-    wcts = wct.ModelsWCT()
-    all_models = wcts.get_models() + [obs.name()]
-    all_transects = wcts.get_all_transects()
+    obs = None
+    try:
+        obs = data.Observations()
+    except FileNotFoundError:
+        pass
+    models = data.Models()
+
+    all_models = models.get_models()
+    if obs is not None:
+        all_models.append(obs.name())
+    all_transects = models.get_transects()
 
     with futures.ProcessPoolExecutor() as exec:
         fs = []
         print('Queueing...')
         i = 0
         for model in all_models:
-            for transect in all_transects[::1]:
+            for transect in all_transects[::10]:
                 if i % ntasks == task:
                     fs.append(exec.submit(run, model, transect))
                 i += 1

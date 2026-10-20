@@ -63,9 +63,12 @@ def main(args: list[str]) -> int:
     with futures.ProcessPoolExecutor() as exec:
         fs = []
         print('Queueing...')
+        i = 0
         for a, model in enumerate(all_models):
-            for b, transect in enumerate(all_transects[task::ntasks]):
-                fs.append(exec.submit(run, model, transect, a, b))
+            for b, transect in enumerate(all_transects):
+                if i % ntasks == task:
+                    fs.append(exec.submit(run, model, transect, a, b))
+                i += 1
 
         print('Executing...')
         for i, future in enumerate(futures.as_completed(fs)):
