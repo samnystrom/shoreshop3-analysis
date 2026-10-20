@@ -86,8 +86,11 @@ def main(args: list[str]) -> int:
         fs = []
         print('Queueing...')
         i = 0
+        stride = 10
+        if len(all_transects) < stride:
+            stride = 1
         for model in all_models:
-            for transect in all_transects[::10]:
+            for transect in all_transects[::stride]:
                 if i % ntasks == task:
                     fs.append(exec.submit(run, model, transect))
                 i += 1
