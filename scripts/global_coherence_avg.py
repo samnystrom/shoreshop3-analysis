@@ -13,7 +13,7 @@ _grp: zarr.Group | None = None
 
 def run(model: str, transect: str, model_idx: int, transect_idx: int) -> None:
     global _wcts
-    global _arr
+    global _grp
     _wcts = _wcts or wct.ModelsWCT()
     _grp = _grp or zarr.open_group(data.global_coherence_path, mode='r+', zarr_format=3)
 
@@ -45,7 +45,7 @@ def main(args: list[str]) -> int:
 
     wcts = wct.ModelsWCT()
     all_models = wcts.get_models()
-    all_transects = wcts.get_all_transects()
+    all_transects = wcts.get_transects()
     M, T, j, n = wcts._ds.coherence.shape
 
     if not data.global_coherence_path.exists():

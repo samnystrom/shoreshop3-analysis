@@ -340,7 +340,7 @@ class CWT(WaveletResult):
 
     @override
     def power(self) -> np.ndarray:
-        return np.log2(self._wave)
+        return np.log2(self._wave ** 2)
         #return np.log2(np.abs(self._wave) ** 2)
 
     @override

@@ -19,7 +19,7 @@ scratchdir = Path('/scratch')
 shoreshop_path = Path.home() / 'abmurraylab/shoreshop3'
 
 basedir = shoreshop_path / 'analysis/wavelets'
-datadir = basedir / 'nc-2024-2100'
+datadir = basedir / 'duck-2024-2100'
 figdir = datadir / 'figures'
 
 observations_path = datadir / 'observations.zarr'

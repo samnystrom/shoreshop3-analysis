@@ -100,7 +100,7 @@ class ModelWCTLoader(TransectLoader):
         return self._wct.get_transects()
 
     @override
-    def get_timeseries(self) -> pd.DataFrame | None:
+    def get_timeseries(self, transect: str) -> pd.DataFrame | None:
         return None
 
     @override

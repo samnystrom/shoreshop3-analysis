@@ -15,22 +15,25 @@ from shoreshop3_analysis import util, data, worker, wavelet
 
 class ModelsWCT:
     def __init__(self) -> None:
+        self._obs = data.Observations() # may raise FileNotFoundError
+        self._models = data.Models()
+
+        obs_min_time, obs_max_time = self._obs.get_range()
+        models_min_time, models_max_time = self._models.get_range()
+        min_time = max(obs_min_time, models_min_time)
+        max_time = min(obs_max_time, models_max_time)
+        self._range = min_time, max_time
+
         if data.model_coherence_path.exists():
             self._ds = xr.open_zarr(data.model_coherence_path, consolidated=False)
             return
 
-        self._obs = data.Observations() # may raise FileNotFoundError
-        self._models = data.Models()
         all_models = self._models.get_models()
         all_transects = self._models.get_transects()
         M, T = len(all_models), len(all_transects)
 
         dt = self._obs.dt()
 
-        obs_min_time, obs_max_time = self._obs.get_range()
-        models_min_time, models_max_time = self._models.get_range()
-        min_time = max(obs_min_time, models_min_time)
-        max_time = min(obs_max_time, models_max_time)
         diff = (max_time - min_time) / np.timedelta64(1, 'D')
         n = int(np.ceil(diff / dt))
 
@@ -66,7 +69,7 @@ class ModelsWCT:
         self._ds.to_zarr(data.model_coherence_path, compute=False, consolidated=False, zarr_format=3, encoding=encoding)
 
     def dt(self) -> float:
-        return self._ds.attrs.dt
+        return self._ds.attrs['dt']
 
     def compute(self, task: int = 0, ntasks: int = 1) -> None:
         timer = util.Timer()
@@ -80,8 +83,8 @@ class ModelsWCT:
             fs = []
             all_models = models.get_models()
             all_transects = models.get_transects()
-            models_slice = slice()
-            transects_slice = slice(task, step=ntasks)
+            models_slice = slice(None)
+            transects_slice = slice(task, None, ntasks)
             if len(all_models) > len(all_transects):
                 models_slice, transects_slice = transects_slice, models_slice
             for i, j in np.array(np.isnan(self._ds.period[models_slice, transects_slice, 0].values).nonzero()).T:
@@ -106,12 +109,13 @@ class ModelsWCT:
     
                     r = future.result()
                 except Exception as e:
+                    # catch everything so we don't leave the workers to run without progress reports
                     print(e)
 
         print(f'\nFinished in {timer}')
 
     def get_range(self) -> tuple[np.datetime64, np.datetime64]:
-        return self._ds.time.min().values, self._ds.time.max().values
+        self._range
 
     def get_models(self) -> list[str]:
         return self._ds.model.values.tolist()
@@ -136,7 +140,7 @@ class ModelsWCT:
         sig = self._ds.sig[model_idx, transect_idx, :j].values
         coi = self._ds.coi[model_idx, transect_idx, :n].values.astype(np.float64)
 
-        dt = 8
+        dt = self.dt()
 
         times = start + (np.arange(n) * np.timedelta64(dt, 'D'))
         times = pd.Series(times)
