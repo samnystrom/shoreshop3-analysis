@@ -20,6 +20,7 @@ shoreshop_path = Path.home() / 'abmurraylab/shoreshop3'
 
 datadir = shoreshop_path / 'analysis/wavelets'
 coastsat_data_path = datadir / 'coastsat.zarr'
+coastsat_blind_path = datadir / 'coastsat-blind.zarr'
 model_coherence_path = datadir / 'coherence.zarr'
 global_coherence_path = datadir / 'global-coherence.zarr'
 blind_path = datadir / 'MIP_NC_2020-2023.nc'
