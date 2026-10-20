@@ -12,7 +12,7 @@ from shoreshop3_analysis import data, wct, wavelet, transect_loaders
 
 _obs: data.Observations | None = None
 _models: data.Models | None = None
-_wcts: data.ModelsWCT | None = None
+_wcts: wct.ModelsWCT | None = None
 
 
 def _year(dt: np.datetime64) -> int:
