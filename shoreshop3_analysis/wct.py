@@ -115,7 +115,7 @@ class ModelsWCT:
         print(f'\nFinished in {timer}')
 
     def get_range(self) -> tuple[np.datetime64, np.datetime64]:
-        self._range
+        return self._range
 
     def get_models(self) -> list[str]:
         return self._ds.model.values.tolist()
