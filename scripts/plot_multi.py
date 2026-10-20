@@ -67,7 +67,7 @@ def run(model: str) -> None:
         #    if p is not None:
         #        p.save(densedir / f'{first}-{last}.png', dpi=180)
 
-    plt.close()
+    plt.close('all')
 
 
 def main(args: list[str]) -> int:

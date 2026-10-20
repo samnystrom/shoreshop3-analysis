@@ -184,10 +184,16 @@ class WaveletResult(ABC):
         #global_power = self.global_power(dropnan=True)
         t = np.arange(n)
 
+        step = math.ceil(n / 1000)
+        nbins = math.ceil(n / step)
+        padded = np.pad(power, ((0, 0), (0, nbins * step - n)), constant_values=np.nan)
+        binned = np.nanmean(padded.reshape(j, nbins, step), axis=2)
+        t_binned = np.arange(nbins) * step + (step - 1) / 2
+
         data = pd.DataFrame({
-            'period': np.repeat(period, n),
-            't': np.tile(t, j),
-            'power': power.flatten(),
+            'period': np.repeat(period, nbins),
+            't': np.tile(t_binned, j),
+            'power': binned.flatten(),
         })
 
         #global_data = pd.DataFrame({

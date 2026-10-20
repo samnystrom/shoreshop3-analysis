@@ -56,7 +56,7 @@ def run(model: str, transect: str) -> None:
             p += pn.labs(title=f'Wavelet Coherence ({lower}-{upper}): {model} {transect}')
             p.save(coherence_path)
 
-    plt.close()
+    plt.close('all')
 
     print(f'finished: {model} {transect}')
 
