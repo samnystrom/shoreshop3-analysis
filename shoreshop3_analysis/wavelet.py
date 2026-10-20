@@ -230,15 +230,15 @@ class WaveletResult(ABC):
                     'x': c[:, 1] - 1 - pad,
                     'y': (c[:, 0] - 1 - pad) / (j - 1) * (period_lim[1] - period_lim[0]) + period_lim[0],
                 }))
-            contours = pd.concat(dfs, ignore_index=True)
-
-            contours_geom = pn.geom_polygon(
-                pn.aes('x', 'y', group='group'),
-                data=contours,
-                color='k',
-                #fill='white',
-                alpha=0.0,
-            )
+            if len(dfs) > 0:
+                contours = pd.concat(dfs, ignore_index=True)
+                contours_geom = pn.geom_polygon(
+                    pn.aes('x', 'y', group='group'),
+                    data=contours,
+                    color='k',
+                    #fill='white',
+                    alpha=0.0,
+                )
 
         timeseries = self.timeseries()
         if timeseries is not None:
