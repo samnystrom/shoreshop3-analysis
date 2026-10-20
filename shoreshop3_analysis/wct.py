@@ -125,9 +125,9 @@ class MultiProfileWCT:
         sig = self._ds.sig[model_idx, transect_idx, :j].values
         coi = self._ds.coi[model_idx, transect_idx, :n].values.astype(np.float64)
 
-        times = start + (np.arange(n) * np.timedelta64(1, 'D'))
-        times = pd.Series(times)
-
         dt = 8
+
+        times = start + (np.arange(n) * np.timedelta64(dt, 'D'))
+        times = pd.Series(times)
 
         return wavelet.WCT(dt, times, coh, coi, 1 / period, sig)
