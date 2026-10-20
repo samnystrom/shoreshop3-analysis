@@ -19,12 +19,15 @@ scratchdir = Path('/scratch')
 shoreshop_path = Path.home() / 'abmurraylab/shoreshop3'
 
 basedir = shoreshop_path / 'analysis/wavelets'
-datadir = basedir / 'nc-1980-2023'
+datadir = basedir / 'duck-2020-2023'
+figdir = datadir / 'figures'
 
 observations_path = datadir / 'observations.zarr'
 model_data_path = datadir / 'models.nc'
 model_coherence_path = datadir / 'coherence.zarr'
 global_coherence_path = datadir / 'global-coherence.zarr'
+scalograms_path = figdir / 'scalograms'
+multiplots_path = figdir / 'multi-profile'
 
 shoreline_path = Path(__file__).parent.parent / 'nc_80k.gpkg'
 

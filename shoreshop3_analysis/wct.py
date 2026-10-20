@@ -65,14 +65,14 @@ class ModelsWCT:
         }
         self._ds.to_zarr(data.model_coherence_path, compute=False, consolidated=False, zarr_format=3, encoding=encoding)
 
+    def dt(self) -> float:
+        return self._ds.attrs.dt
+
     def compute(self, task: int = 0, ntasks: int = 1) -> None:
         timer = util.Timer()
         print('Initializing...')
 
-        obs = data.Observations()
         models = data.Models()
-
-        arr = zarr.open_group(data.model_coherence_path, mode='r+', zarr_format=3)
 
         mem_gb = util.get_peak_mem() / 1024**3
 

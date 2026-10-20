@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 from concurrent import futures
@@ -22,27 +23,35 @@ def plot_multi(model):
     ]
 
     for loader, dir in loaders:
-        base = Path(__file__).parent.parent / 'figures' / dir
+        base = data.multiplots_path / dir
 
         path = base / f'multi/{model}.png'
         if not path.exists():
+            os.makedirs(path.parent, exist_ok=True)
             p = plot.plot_multi_global_sampled(loader, 80, 80)
-            p.save(path, dpi=180)
+            if p is not None:
+                p.save(path, dpi=180)
 
         path = base / f'cape-fear/{model}.png'
         if not path.exists():
+            os.makedirs(path.parent, exist_ok=True)
             p = plot.plot_multi_global_dense(loader, offset=60, n_transects=80, stride=1, max_leaders=20, title='Cape Fear')
-            p.save(path, dpi=180)
+            if p is not None:
+                p.save(path, dpi=180)
 
         path = base / f'cape-lookout/{model}.png'
         if not path.exists():
+            os.makedirs(path.parent, exist_ok=True)
             p = plot.plot_multi_global_dense(loader, offset=400, n_transects=80, stride=1, max_leaders=20, title='Cape Lookout')
-            p.save(path, dpi=180)
+            if p is not None:
+                p.save(path, dpi=180)
 
         path = base / f'cape-hatteras/{model}.png'
         if not path.exists():
+            os.makedirs(path.parent, exist_ok=True)
             p = plot.plot_multi_global_dense(loader, offset=615, n_transects=80, stride=1, max_leaders=20, title='Cape Hatteras')
-            p.save(path, dpi=180)
+            if p is not None:
+                p.save(path, dpi=180)
 
 
 def main() -> int:

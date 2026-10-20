@@ -4,7 +4,6 @@ from pathlib import Path
 from concurrent import futures
 
 import numpy as np
-import xarray as xr
 import plotnine as pn
 
 from shoreshop3_analysis import data, wct, wavelet, transect_loaders
@@ -27,8 +26,8 @@ def run(model: str, transect: str) -> None:
     _models = _models or data.Models()
     _wcts = _wcts or wct.ModelsWCT()
 
-    power_path = data.workdir / 'scalograms' / 'power' / model / f'{transect}.png'
-    coherence_path = data.workdir / 'scalograms' / 'coherence' / model / f'{transect}.png'
+    power_path = data.scalograms_path / 'power' / model / f'{transect}.png'
+    coherence_path = data.scalograms_path / 'coherence' / model / f'{transect}.png'
     os.makedirs(power_path.parent, exist_ok=True)
     os.makedirs(coherence_path.parent, exist_ok=True)
 

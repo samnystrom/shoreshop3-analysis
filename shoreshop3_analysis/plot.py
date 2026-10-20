@@ -86,7 +86,7 @@ def _plot_multi_transect(
     show_full_coast: bool,
     leader_mode: 'lines' | 'labels',
     title: str = '',
-) -> pn.ggplot:
+) -> pn.ggplot | None:
     profiles, shoreline = _get_profiles_shoreline()
 
     xlim = (profiles['easting'].min(), profiles['easting'].max())
@@ -94,7 +94,7 @@ def _plot_multi_transect(
 
     selected_profiles = profiles.loc[transects].reset_index(names='id')
     if len(selected_profiles) == 0:
-        return pn.ggplot()
+        return None
     leader_profiles = _select_leaders(selected_profiles, max_leaders)
     n_transects = len(selected_profiles)
 
@@ -128,7 +128,7 @@ def _plot_multi_transect(
         dfs.append(df)
 
     if len(dfs) == 0:
-        return pn.ggplot()
+        return None
 
     cbar_limits = wave.colorbar_limits()
     if cbar_limits is not None:
@@ -220,7 +220,7 @@ def plot_multi_global_sampled(
     loader: transect_loaders.TransectLoader,
     n_transects: int = 80,
     max_leaders: int = 80,
-) -> pn.ggplot:
+) -> pn.ggplot | None:
     profiles, _shoreline = _get_profiles_shoreline()
     all_transects = loader.get_transects()
     transects = _select_profiles(profiles, all_transects, n_transects)
@@ -235,7 +235,7 @@ def plot_multi_global_dense(
     max_leaders: int = 80,
     stride: int = 1,
     title: str = '',
-) -> pn.ggplot:
+) -> pn.ggplot | None:
     all_transects = loader.get_transects()
     transects = all_transects[offset:offset+n_transects*stride:stride]
 
