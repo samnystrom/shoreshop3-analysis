@@ -20,11 +20,11 @@ shoreshop_path = Path.home() / 'abmurraylab/shoreshop3'
 
 datadir = shoreshop_path / 'analysis/wavelets'
 coastsat_data_path = datadir / 'coastsat.zarr'
+frf_data_path = datadir / 'frf.zarr'
 coastsat_blind_path = datadir / 'coastsat-blind.zarr'
-model_coherence_path = datadir / 'coherence.zarr'
-global_coherence_path = datadir / 'global-coherence.zarr'
+model_coherence_path = datadir / 'coherence-duck.zarr' # 'coherence.zarr'
+global_coherence_path = datadir / 'global-coherence-duck.zarr' # 'global-coherence.zarr'
 blind_path = datadir / 'MIP_NC_2020-2023.nc'
-figdir = datadir / 'figures'
 
 shoreline_path = Path(__file__).parent.parent / 'nc_80k.gpkg'
 
@@ -99,7 +99,7 @@ def load_shoreline() -> gp.GeoDataFrame:
 
 class CoastsatData:
     def __init__(self) -> None:
-        self._ds = xr.open_zarr(coastsat_data_path, consolidated=False)
+        self._ds = xr.open_zarr(frf_data_path, consolidated=False)
 
     def dt(self) -> float:
         return self._ds.attrs['dt']
@@ -128,39 +128,15 @@ def load_frf_single(transect_id: str) -> pd.DataFrame:
     return df
 
 
-def load_single_profile_models() -> pd.DataFrame:
-    '''
-    returns df with columns date, frf1, frf1006, model
-    '''
-
-    dfs = []
-    for model, path in duck_1980_2023_paths.items():
-        df = pd.read_csv(path, header=1, names=('time', 'frf1', 'frf1006')).dropna()
-        df['model'] = model
-        dfs.append(df)
-
-    df = pd.concat(dfs)
-
-    def fix_date(date: str) -> str:
-        if '/' not in date:
-            return date
-        m, d, y = list(map(int, date.split('/')))
-        return f'{y:04}-{m:02}-{d:02}'
-
-    df['time'] = pd.to_datetime(df['time'].apply(fix_date))
-
-    return df
-
-
 class MultiProfileModels:
     def __init__(self) -> None:
-        self._ds = xr.open_dataset(nc_1980_2023_cube_path)
+        self._ds = xr.open_dataset(duck_1980_2023_cube_path)
 
     def get_models(self) -> list[str]:
         return self._ds.model.values.tolist()
 
     def get_all_transects(self) -> list[str]:
-        return [name.removeprefix('usa_NC_') for name in self._ds.transect.values]
+        return [name for name in self._ds.transect.values]
 
     def get_transects(self, model: str) -> list[str]:
         return self.get_all_transects()
@@ -169,6 +145,6 @@ class MultiProfileModels:
         '''
         Returns: dataframe with columns time (datetime64), x (float)
         '''
-        subset = self._ds.shoreline_position.sel(model=model, transect='usa_NC_' + transect)
+        subset = self._ds.shoreline_position.sel(model=model, transect=transect)
         subset = subset.dropna('time')
         return subset.to_pandas().reset_index().rename(columns={'shoreline_position': 'x'})

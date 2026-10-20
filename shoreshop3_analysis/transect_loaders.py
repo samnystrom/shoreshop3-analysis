@@ -37,7 +37,7 @@ class CoastsatLoader(TransectLoader):
 
     @override
     def get_title(self) -> str:
-        return 'Global Wavelet Power (1980–2023): CoastSat'
+        return 'Global Wavelet Power (2020–2023): CoastSat'
 
     @override
     def get_transects(self) -> list[str]:
@@ -60,7 +60,7 @@ class ModelDataLoader(TransectLoader):
 
     @override
     def get_title(self) -> str:
-        return f'Global Wavelet Power (1980–2023): model={self._model}'
+        return f'Global Wavelet Power (2020–2023): model={self._model}'
 
     @override
     def get_transects(self) -> list[str]:
@@ -86,7 +86,7 @@ class ModelWCTLoader(TransectLoader):
 
     @override
     def get_title(self) -> str:
-        return f'Global Wavelet Coherence (1980–2023): model={self._model}'
+        return f'Global Wavelet Coherence (2020–2023): model={self._model}'
 
     @override
     def get_transects(self) -> list[str]:

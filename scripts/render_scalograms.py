@@ -29,22 +29,22 @@ def run(model: str, transect: str) -> None:
     os.makedirs(coherence_path.parent, exist_ok=True)
 
     if not power_path.exists():
-        if model == 'CoastSat':
+        if model == 'FRF':
             loader = transect_loaders.CoastsatLoader(_coastsat)
         else:
             loader = transect_loaders.ModelDataLoader(_models, model)
         w = loader.get_wavelet(transect)
         if w is not None:
             p = w.plot()
-            p.items[0] += pn.labs(title=f'Wavelet Power Spectrum (1980-2023): {model} usa_NC_{transect}')
+            p.items[0] += pn.labs(title=f'Wavelet Power Spectrum (1980-2023): {model} transect={transect}')
             p.save(power_path)
     
-    if not coherence_path.exists() and model != 'CoastSat':
+    if not coherence_path.exists() and model != 'FRF':
         loader = transect_loaders.ModelWCTLoader(_wcts, model)
         w = loader.get_wavelet(transect)
         if w is not None:
             p = w.plot()
-            p += pn.labs(title=f'Wavelet Coherence (1980-2023): {model} usa_NC_{transect}')
+            p += pn.labs(title=f'Wavelet Coherence (1980-2023): {model} transect={transect}')
             p.save(coherence_path)
 
     print(f'finished: {model} {transect}')
@@ -60,7 +60,7 @@ def main(args: list[str]) -> int:
         ntasks = int(args[2])
 
     wcts = wct.MultiProfileWCT()
-    all_models = wcts.get_models() + ['CoastSat']
+    all_models = wcts.get_models() + ['FRF']
     all_transects = wcts.get_all_transects()
 
     with futures.ProcessPoolExecutor() as exec:
@@ -68,7 +68,7 @@ def main(args: list[str]) -> int:
         print('Queueing...')
         i = 0
         for model in all_models:
-            for transect in all_transects[::10]:
+            for transect in all_transects[::1]:
                 if i % ntasks == task:
                     fs.append(exec.submit(run, model, transect))
                 i += 1
