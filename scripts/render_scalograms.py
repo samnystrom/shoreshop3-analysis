@@ -19,8 +19,8 @@ def run(model: str, transect: str) -> None:
     _models = _models or data.MultiProfileModels()
     _wcts = _wcts or wct.MultiProfileWCT()
 
-    power_path = data.workdir / 'power' / model / f'{transect}.png'
-    coherence_path = data.workdir / 'coherence' / model / f'{transect}.png'
+    power_path = data.workdir / 'scalograms' / 'power' / model / f'{transect}.png'
+    coherence_path = data.workdir / 'scalograms' / 'coherence' / model / f'{transect}.png'
     os.makedirs(power_path.parent, exist_ok=True)
     os.makedirs(coherence_path.parent, exist_ok=True)
 

@@ -20,7 +20,12 @@ def run(model: str, transect: str, model_idx: int, transect_idx: int) -> None:
 
     idx = model_idx, transect_idx
 
+    if not np.isnan(_arr['period'][*idx, 0]):
+        return
+
     w = _wcts.get_wct(model, transect)
+    if w is None:
+        return
     gp = w.global_power(dropnan=True)
     j = gp.size
 
@@ -38,26 +43,27 @@ def main() -> int:
     all_transects = wcts.get_all_transects()
     M, T, j, n = wcts._ds.coherence.shape
 
-    ds = xr.Dataset(
-        data_vars={
-            'period':    (('model', 'transect', 'scale'), np.full((M, T, j), np.nan, dtype=np.float64)),
-            'coherence': (('model', 'transect', 'scale'), np.full((M, T, j), np.nan, dtype=np.float64)),
-        },
-        coords={
-            'model': all_models,
-            'transect': all_transects,
-            'scale': np.arange(j),
-        },
-        attrs={
-            'title': '',
-            'source': '',
-        },
-    )
-    encoding = {
-        'period': {'chunks': (1, 1, j)},
-        'coherence': {'chunks': (1, 1, j)},
-    }
-    ds.to_zarr(data.global_coherence_path, consolidated=False, zarr_format=3, encoding=encoding)
+    if not data.global_coherence_path.exists():
+        ds = xr.Dataset(
+            data_vars={
+                'period':    (('model', 'transect', 'scale'), np.full((M, T, j), np.nan, dtype=np.float64)),
+                'coherence': (('model', 'transect', 'scale'), np.full((M, T, j), np.nan, dtype=np.float64)),
+            },
+            coords={
+                'model': all_models,
+                'transect': all_transects,
+                'scale': np.arange(j),
+            },
+            attrs={
+                'title': '',
+                'source': '',
+            },
+        )
+        encoding = {
+            'period': {'chunks': (1, 1, j)},
+            'coherence': {'chunks': (1, 1, j)},
+        }
+        ds.to_zarr(data.global_coherence_path, consolidated=False, zarr_format=3, encoding=encoding)
 
     with futures.ProcessPoolExecutor() as exec:
         fs = []

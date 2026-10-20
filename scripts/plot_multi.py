@@ -49,7 +49,7 @@ def main() -> int:
     models = data.MultiProfileModels()
     with futures.ProcessPoolExecutor() as exec:
         for f in exec.map(plot_multi, models.get_models()):
-            f.result()
+            pass
     return 0
 
 
