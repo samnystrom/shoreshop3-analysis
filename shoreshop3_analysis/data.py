@@ -150,7 +150,7 @@ def load_single_profile_models() -> pd.DataFrame:
 
 
 class MultiProfileModels:
-    def __init__(self, scratchdir: str | None = None) -> None:
+    def __init__(self) -> None:
         self._ds = xr.open_dataset(nc_1980_2023_cube_path)
 
     def get_models(self) -> list[str]:

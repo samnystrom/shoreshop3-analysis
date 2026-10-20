@@ -116,6 +116,8 @@ class MultiProfileWCT:
 
         coh = self._ds.coherence[model_idx, transect_idx, :, :].values
         n = len(coh[0][~np.isnan(coh[0])])
+        if n == 0:
+            return None
         coh = coh[~np.isnan(coh)].reshape((-1, n))
         j, n = coh.shape
 

@@ -205,7 +205,11 @@ class WaveletResult(ABC):
             breaks=np.arange(0, n, (365*5 + 2) / self.dt()),
             labels=lambda breaks: list(map(self.xlabel, breaks)),
         )
-        period_scale = pn.scale_y_continuous(expand=(0, 0), labels=lambda breaks: [format_period(int(2**y)) for y in breaks])
+        period_scale = pn.scale_y_continuous(
+            expand=(0, 0),
+            breaks=np.log2(np.array([2, 17, 31*3, 367, 366*4, 366*14])),
+            labels=lambda breaks: [format_period(int(2**y)) for y in breaks],
+        )
         period_lim = (np.min(period), np.max(period))
 
         sig = self.sig()
@@ -239,13 +243,13 @@ class WaveletResult(ABC):
         timeseries = self.timeseries()
         if timeseries is not None:
             timeseries['t'] = t
-            trend = self.trend()
-            trend['b'] = -trend['a'] * n / 2
+            #trend = self.trend()
+            #trend['b'] = -trend['a'] * n / 2
             timeseries_plot = (
                 pn.ggplot(timeseries)
                 + pn.geom_line(pn.aes('t', 'x', group=1))
-                + pn.geom_abline(pn.aes(slope='a', intercept='b', color='"Trend (removed)"'), data=trend)
-                + pn.scale_color_manual({'Trend (removed)': 'tab:red'}, name='')
+                #+ pn.geom_abline(pn.aes(slope='a', intercept='b', color='"Trend (removed)"'), data=trend)
+                #+ pn.scale_color_manual({'Trend (removed)': 'tab:red'}, name='')
                 #+ pn.scale_x_date(date_breaks='5 years', date_labels='%Y')
                 + time_scale
                 + pn.labs(x='', y='Shoreline position (m)')
@@ -291,6 +295,7 @@ class CWT(WaveletResult):
     def __init__(self, times: pd.Series, x: np.ndarray, dt: float) -> None:
         self._dt = dt
         self._times = times
+        self._signal = x
 
         n, dj = x.size, 1/12
         w0 = 6 # Morlet parameter
@@ -304,7 +309,6 @@ class CWT(WaveletResult):
         t = np.arange(n) * dt
         self._slope, self._intercept = np.polyfit(t, x, 1)
         xd = x - (self._slope * t + self._intercept)
-        self._signal = xd
 
         m = int(2 ** np.ceil(np.log2(n)))
         ts = pyleoclim.Series(np.arange(m) * dt, np.concatenate([xd, np.zeros(m - n)]), verbose=False)

@@ -128,12 +128,12 @@ def _plot_multi_transect(
         })
         dfs.append(df)
 
+    if len(dfs) == 0:
+        return pn.ggplot()
+
     cbar_limits = wave.colorbar_limits()
     if cbar_limits is not None:
         min_power, max_power = cbar_limits
-
-    if len(dfs) == 0:
-        return pn.ggplot()
 
     global_powers = pd.concat(dfs).set_index('id')
 
