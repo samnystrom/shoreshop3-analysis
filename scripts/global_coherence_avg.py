@@ -35,8 +35,14 @@ def run(model: str, transect: str, model_idx: int, transect_idx: int) -> None:
     print(f'finished: {model} {transect} ({model_idx}, {transect_idx})')
 
 
-def main() -> int:
+def main(args: list[str]) -> int:
     print('Initializing...')
+
+    task = 0
+    ntasks = 1
+    if len(args) > 2:
+        task = int(args[1])
+        ntasks = int(args[2])
 
     wcts = wct.MultiProfileWCT()
     all_models = wcts.get_models()
@@ -69,7 +75,7 @@ def main() -> int:
         fs = []
         print('Queueing...')
         for a, model in enumerate(all_models):
-            for b, transect in enumerate(all_transects):
+            for b, transect in enumerate(all_transects[task::ntasks]):
                 fs.append(exec.submit(run, model, transect, a, b))
 
         print('Executing...')
@@ -83,4 +89,4 @@ def main() -> int:
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(main(sys.argv))

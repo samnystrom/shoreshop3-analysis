@@ -17,7 +17,7 @@ def plot_multi(model):
     print(model)
 
     loaders = [
-        # (transect_loaders.ModelDataLoader(_models, model), 'power'),
+        (transect_loaders.ModelDataLoader(_models, model), 'power'),
         (transect_loaders.ModelWCTLoader(_wcts, model), 'coherence'),
     ]
 
