@@ -30,7 +30,7 @@ def _run_internal(model: str, transect: str, idx: tuple[int, int]) -> None:
     #_out = _out or xr.open_zarr(data.model_coherence_path, consolidated=False)
     _arr = _arr or zarr.open_group(data.model_coherence_path, mode='r+', zarr_format=3)
 
-    dt = 8
+    dt = _obs.dt()
 
     obs = _obs.get_single(transect)
     model_data = _models.get_model_transect_data(model, transect)
