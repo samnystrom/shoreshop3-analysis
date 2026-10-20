@@ -5,17 +5,21 @@ from concurrent import futures
 
 import numpy as np
 import xarray as xr
+import plotnine as pn
 
 from shoreshop3_analysis import data, wct, wavelet, transect_loaders
 
 
+_coastsat: data.CoastsatData | None = None
 _models: data.MultiProfileModels | None = None
 _wcts: data.MultiProfileWCT | None = None
 
 
 def run(model: str, transect: str) -> None:
+    global _coastsat
     global _models
     global _wcts
+    _coastsat = _coastsat or data.CoastsatData()
     _models = _models or data.MultiProfileModels()
     _wcts = _wcts or wct.MultiProfileWCT()
 
@@ -25,17 +29,22 @@ def run(model: str, transect: str) -> None:
     os.makedirs(coherence_path.parent, exist_ok=True)
 
     if not power_path.exists():
-        loader = transect_loaders.ModelDataLoader(_models, model)
+        if model == 'CoastSat':
+            loader = transect_loaders.CoastsatLoader(_coastsat)
+        else:
+            loader = transect_loaders.ModelDataLoader(_models, model)
         w = loader.get_wavelet(transect)
         if w is not None:
             p = w.plot()
+            p.items[0] += pn.labs(title=f'Wavelet Power Spectrum (1980-2023): {model} usa_NC_{transect}')
             p.save(power_path)
     
-    if not coherence_path.exists():
+    if not coherence_path.exists() and model != 'CoastSat':
         loader = transect_loaders.ModelWCTLoader(_wcts, model)
         w = loader.get_wavelet(transect)
         if w is not None:
             p = w.plot()
+            p += pn.labs(title=f'Wavelet Coherence (1980-2023): {model} usa_NC_{transect}')
             p.save(coherence_path)
 
     print(f'finished: {model} {transect}')
@@ -51,7 +60,7 @@ def main(args: list[str]) -> int:
         ntasks = int(args[2])
 
     wcts = wct.MultiProfileWCT()
-    all_models = wcts.get_models()
+    all_models = wcts.get_models() + ['CoastSat']
     all_transects = wcts.get_all_transects()
 
     with futures.ProcessPoolExecutor() as exec:
