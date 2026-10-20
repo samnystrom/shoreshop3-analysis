@@ -1,36 +1,19 @@
-import json
 import time
 import sys
-from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-import xarray as xr
 import zarr
-from pyleoclim import Series
 
 from shoreshop3_analysis import data, wavelet
 
 
-_coastsat_data: data.CoastsatData | None = None
-_models: data.MultiProfileModels | None = None
+_obs: data.Observations | None = None
+_models: data.Models | None = None
 _arr: zarr.Array | None = None
 
 
-@dataclass(frozen=True)
-class WorkerResult:
-    model_idx: int
-    transect_idx: int
-    dt: float
-    start: np.datetime64
-    n: int
-    j: int
-    period: np.ndarray
-    sig: np.ndarray
-    coi: np.ndarray
-
-
-def run(model: str, transect: str, ids: tuple[int, int]) -> None: # WorkerResult | None:
+def run(model: str, transect: str, ids: tuple[int, int]) -> None:
     try:
         return _run_internal(model, transect, ids)
     except Exception as e:
@@ -38,18 +21,18 @@ def run(model: str, transect: str, ids: tuple[int, int]) -> None: # WorkerResult
         raise e
 
 
-def _run_internal(model: str, transect: str, idx: tuple[int, int]) -> None: # WorkerResult | None:
-    global _coastsat_data
+def _run_internal(model: str, transect: str, idx: tuple[int, int]) -> None:
+    global _obs
     global _models
     global _arr
-    _coastsat_data = _coastsat_data or data.CoastsatData()
-    _models = _models or data.MultiProfileModels()
+    _obs = _obs or data.Observations()
+    _models = _models or data.Models()
     #_out = _out or xr.open_zarr(data.model_coherence_path, consolidated=False)
     _arr = _arr or zarr.open_group(data.model_coherence_path, mode='r+', zarr_format=3)
 
     dt = 8
 
-    obs = _coastsat_data.get_single(transect)
+    obs = _obs.get_single(transect)
     model_data = _models.get_model_transect_data(model, transect)
     if len(model_data) == 0: # this transect isn't present for the model
         print(f'skipping (empty): {model} {transect} ({idx[0]}, {idx[1]})')
@@ -79,4 +62,4 @@ def _run_internal(model: str, transect: str, idx: tuple[int, int]) -> None: # Wo
 
     print(f'finished: {model} {transect} ({idx[0]}, {idx[1]})')
 
-    return None # WorkerResult(*idx, dt, start, n, j, period, wave.sig(), wave.coi())
+    return None

@@ -58,7 +58,7 @@ def main() -> int:
             'comment': '',
             'dt': dt,
         }
-        ds.to_zarr(data.frf_data_path, mode='w', consolidated=False, zarr_format=3)
+        ds.to_zarr(data.basedir / 'duck-2020-2023' / 'observations.zarr', mode='w', consolidated=False, zarr_format=3)
     print(f'written Zarr store in {timer}')
 
     return 0

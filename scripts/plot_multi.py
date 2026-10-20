@@ -4,20 +4,20 @@ from concurrent import futures
 from shoreshop3_analysis import data, wct, transect_loaders, plot
 
 
-_models: data.MultiProfileModels | None = None
-_wcts: wct.MultiProfileWCT | None = None
+_models: data.Models | None = None
+_wcts: wct.ModelsWCT | None = None
 
 
 def plot_multi(model):
     global _models
     global _wcts
-    _models = _models or data.MultiProfileModels()
-    _wcts = _wcts or wct.MultiProfileWCT()
+    _models = _models or data.Models()
+    _wcts = _wcts or wct.ModelsWCT()
 
     print(model)
 
     loaders = [
-        (transect_loaders.ModelDataLoader(_models, model), 'power'),
+        (transect_loaders.ModelsLoader(_models, model), 'power'),
         (transect_loaders.ModelWCTLoader(_wcts, model), 'coherence'),
     ]
 
@@ -46,7 +46,7 @@ def plot_multi(model):
 
 
 def main() -> int:
-    models = data.MultiProfileModels()
+    models = data.Models()
     with futures.ProcessPoolExecutor() as exec:
         for f in exec.map(plot_multi, models.get_models()):
             pass

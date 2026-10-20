@@ -8,14 +8,14 @@ import zarr
 from shoreshop3_analysis import data, wct
 
 
-_wcts: wct.MultiProfileWCT | None = None
+_wcts: wct.ModelsWCT | None = None
 _arr: zarr.Array | None = None
 
 
 def run(model: str, transect: str, model_idx: int, transect_idx: int) -> None:
     global _wcts
     global _arr
-    _wcts = _wcts or wct.MultiProfileWCT()
+    _wcts = _wcts or wct.ModelsWCT()
     _arr = _arr or zarr.open_group(data.global_coherence_path, mode='r+', zarr_format=3)
 
     idx = model_idx, transect_idx
@@ -44,7 +44,7 @@ def main(args: list[str]) -> int:
         task = int(args[1])
         ntasks = int(args[2])
 
-    wcts = wct.MultiProfileWCT()
+    wcts = wct.ModelsWCT()
     all_models = wcts.get_models()
     all_transects = wcts.get_all_transects()
     M, T, j, n = wcts._ds.coherence.shape

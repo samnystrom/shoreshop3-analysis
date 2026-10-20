@@ -11,7 +11,6 @@ def _get_profiles_shoreline() -> tuple[gp.GeoDataFrame, gp.GeoDataFrame]:
     profiles = data.load_profiles()
     shoreline = data.load_shoreline()
 
-    profiles['id'] = profiles['id'].apply(lambda id: id.removeprefix('usa_NC_'))
     profiles = profiles.drop(columns=['site_id', 'cil', 'ciu', 'trend', 'beach_slope', 'n_points', 'n_points_nonan'])
     profiles = profiles.set_index('id')
 

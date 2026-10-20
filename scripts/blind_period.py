@@ -7,17 +7,20 @@ from shoreshop3_analysis import data
 
 
 def main() -> int:
-    ds = xr.open_dataset(data.nc_1980_2023_cube_path)
-    start = np.datetime64('2020-01-01')
-    indices = (ds.time.values >= start).nonzero()[0]
-    blind = ds.isel(time=xr.DataArray(indices, dims=['time']))
-    blind.to_netcdf(data.blind_path)
+    fromdir = 'nc-1980-2023'
+    todir = 'nc-2020-2023'
 
-    ds = xr.open_zarr(data.coastsat_data_path, consolidated=False)
+    ds = xr.open_dataset(data.basedir / fromdir / 'models.nc')
     start = np.datetime64('2020-01-01')
     indices = (ds.time.values >= start).nonzero()[0]
     blind = ds.isel(time=xr.DataArray(indices, dims=['time']))
-    blind.to_zarr(data.coastsat_blind_path, mode='w', consolidated=False, zarr_format=3)
+    blind.to_netcdf(data.basedir / todir / 'models.nc')
+
+    ds = xr.open_zarr(data.basedir / fromdir / 'observations.zarr', consolidated=False)
+    start = np.datetime64('2020-01-01')
+    indices = (ds.time.values >= start).nonzero()[0]
+    blind = ds.isel(time=xr.DataArray(indices, dims=['time']))
+    blind.to_zarr(data.basedir / todir / 'observations.zarr', mode='w', consolidated=False, zarr_format=3)
 
     return 0
 

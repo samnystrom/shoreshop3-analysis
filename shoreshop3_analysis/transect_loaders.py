@@ -9,6 +9,10 @@ import plotnine as pn
 from shoreshop3_analysis import data, wavelet, wct
 
 
+def _year(dt: np.datetime64) -> int:
+    return dt.astype('datetime64[Y]').astype(int) + 1970
+
+
 class TransectLoader(ABC):
     @abstractmethod
     def get_title(self) -> str:
@@ -31,40 +35,42 @@ class TransectLoader(ABC):
         pass
 
 
-class CoastsatLoader(TransectLoader):
-    def __init__(self, cs_data: data.CoastsatData) -> None:
-        self._cs_data = cs_data
+class ObservationsLoader(TransectLoader):
+    def __init__(self, obs: data.Observations) -> None:
+        self._obs = obs
 
     @override
     def get_title(self) -> str:
-        return 'Global Wavelet Power (2020–2023): CoastSat'
+        lower, upper = map(_year, self._obs.get_range())
+        return f'Global Wavelet Power ({lower}–{upper}): {self._obs.name()}'
 
     @override
     def get_transects(self) -> list[str]:
-        return self._cs_data.get_transects()
+        return self._obs.get_transects()
 
     @override
     def get_timeseries(self, transect: str) -> pd.DataFrame | None:
-        return self._cs_data.get_single(transect)
+        return self._obs.get_single(transect)
 
     @override
     def get_wavelet(self, transect: str) -> wavelet.WaveletResult | None:
         df = self.get_timeseries(transect)
-        return wavelet.CWT(df['time'], df['x'].values, dt=self._cs_data.dt())
+        return wavelet.CWT(df['time'], df['x'].values, dt=self._obs.dt())
 
 
-class ModelDataLoader(TransectLoader):
-    def __init__(self, models: data.MultiProfileModels, model: str) -> None:
+class ModelsLoader(TransectLoader):
+    def __init__(self, models: data.Models, model: str) -> None:
         self._models = models
         self._model = model
 
     @override
     def get_title(self) -> str:
-        return f'Global Wavelet Power (2020–2023): model={self._model}'
+        lower, upper = map(_year, self._models.get_range())
+        return f'Global Wavelet Power ({lower}–{upper}): model={self._model}'
 
     @override
     def get_transects(self) -> list[str]:
-        return self._models.get_transects(self._model)
+        return self._models.get_transects()
 
     @override
     def get_timeseries(self, transect: str) -> pd.DataFrame | None:
@@ -80,17 +86,18 @@ class ModelDataLoader(TransectLoader):
 
 
 class ModelWCTLoader(TransectLoader):
-    def __init__(self, loader: wct.MultiProfileWCT, model: str) -> None:
+    def __init__(self, loader: wct.ModelsWCT, model: str) -> None:
         self._wct = loader
         self._model = model
 
     @override
     def get_title(self) -> str:
-        return f'Global Wavelet Coherence (2020–2023): model={self._model}'
+        lower, upper = map(_year, self._wct.get_range())
+        return f'Global Wavelet Coherence ({lower}–{upper}): model={self._model}'
 
     @override
     def get_transects(self) -> list[str]:
-        return self._wct.get_transects(self._model)
+        return self._wct.get_transects()
 
     @override
     def get_timeseries(self) -> pd.DataFrame | None:

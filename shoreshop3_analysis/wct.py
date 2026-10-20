@@ -13,22 +13,24 @@ import zarr
 from shoreshop3_analysis import util, data, worker, wavelet
 
 
-class MultiProfileWCT:
+class ModelsWCT:
     def __init__(self) -> None:
         if data.model_coherence_path.exists():
             self._ds = xr.open_zarr(data.model_coherence_path, consolidated=False)
             return
 
-        self._coastsat_data = data.CoastsatData()
-        self._models = data.MultiProfileModels()
+        self._obs = data.Observations()
+        self._models = data.Models()
         all_models = self._models.get_models()
-        all_transects = self._models.get_all_transects()
+        all_transects = self._models.get_transects()
         M, T = len(all_models), len(all_transects)
 
-        dt = 8
+        dt = self._obs.dt()
 
-        n = 0
-        min_time, max_time = self._coastsat_data.get_range()
+        obs_min_time, obs_max_time = self._obs.get_range()
+        models_min_time, models_max_time = self._models.get_range()
+        min_time = max(obs_min_time, models_min_time)
+        max_time = min(obs_max_time, models_max_time)
         diff = (max_time - min_time) / np.timedelta64(1, 'D')
         n = int(np.ceil(diff / dt))
 
@@ -67,8 +69,8 @@ class MultiProfileWCT:
         timer = util.Timer()
         print('Initializing...')
 
-        coastsat_data = data.CoastsatData()
-        models = data.MultiProfileModels()
+        obs = data.Observations()
+        models = data.Models()
 
         arr = zarr.open_group(data.model_coherence_path, mode='r+', zarr_format=3)
 
@@ -77,7 +79,7 @@ class MultiProfileWCT:
         with futures.ProcessPoolExecutor(max_workers=os.process_cpu_count()) as executor:
             fs = []
             all_models = models.get_models()
-            all_transects = models.get_all_transects()
+            all_transects = models.get_transects()
             for i, j in np.array(np.isnan(self._ds.period[:, task::ntasks, 0].values).nonzero()).T:
                 j = j * ntasks + task
                 print(f'queueing ({i}, {j}): {all_models[i]} {all_transects[j]}')
@@ -101,18 +103,18 @@ class MultiProfileWCT:
 
         print(f'\nFinished in {timer}')
 
+    def get_range(self) -> tuple[np.datetime64, np.datetime64]:
+        return self._ds.time.min().values, self._ds.time.max().values
+
     def get_models(self) -> list[str]:
         return self._ds.model.values.tolist()
 
-    def get_transects(self, model: str) -> list[str]:
-        return self._ds.transect.values.tolist()
-
-    def get_all_transects(self) -> list[str]:
+    def get_transects(self) -> list[str]:
         return self._ds.transect.values.tolist()
 
     def get_wct(self, model: str, transect: str) -> wavelet.WCT | None:
         model_idx = self.get_models().index(model)
-        transect_idx = self.get_all_transects().index(transect)
+        transect_idx = self.get_transects().index(transect)
 
         coh = self._ds.coherence[model_idx, transect_idx, :, :].values
         n = len(coh[0][~np.isnan(coh[0])])
