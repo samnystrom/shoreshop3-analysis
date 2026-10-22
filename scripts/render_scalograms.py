@@ -97,7 +97,7 @@ def main(args: list[str]) -> int:
 
         print('Executing...')
         for i, future in enumerate(futures.as_completed(fs)):
-            print(f'{i+1}/{len(fs)}')
+            print(f'{i+1}/{len(fs)}', flush=True)
             future.result()
 
     print()

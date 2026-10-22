@@ -88,11 +88,11 @@ class ModelsWCT:
             if len(all_models) > len(all_transects):
                 models_slice, transects_slice = transects_slice, models_slice
             for i, j in np.array(np.isnan(self._ds.period[models_slice, transects_slice, 0].values).nonzero()).T:
-                if len(all_models) > len(all_transects):
+                if transects_slice == slice(None):
                     i = i * ntasks + task
                 else:
                     j = j * ntasks + task
-                print(f'queueing ({i}, {j}): {all_models[i]} {all_transects[j]}')
+                print(f'queueing ({i}, {j}): {all_models[i]} {all_transects[j]}', flush=True)
                 fs.append(executor.submit(worker.run, all_models[i], all_transects[j], (i, j)))
 
             for i, future in enumerate(futures.as_completed(fs)):
@@ -105,7 +105,7 @@ class ModelsWCT:
                     predicted._end = predicted._start + predicted_time
                     if i % 10 == 0:
                         mem_gb = util.get_peak_mem() / 1024**3
-                    print(f'Processing result {i+1}/{len(fs)}: peak mem={mem_gb:.1f} GiB time={timer}/{predicted}')
+                    print(f'Processing result {i+1}/{len(fs)}: peak mem={mem_gb:.1f} GiB time={timer}/{predicted}', flush=True)
     
                     r = future.result()
                 except Exception as e:
