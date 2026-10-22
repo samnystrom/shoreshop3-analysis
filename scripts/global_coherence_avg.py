@@ -51,9 +51,9 @@ def main(args: list[str]) -> int:
     if not data.global_coherence_path.exists():
         grp = zarr.open_group(data.global_coherence_path, mode='w', zarr_format=3)
 
-        grp.create_array(name='model', shape=(M,), chunks=(M,), dimension_names=('model',), data=np.array(all_models))
-        grp.create_array(name='transect', shape=(T,), chunks=(T,), dimension_names=('transect',), data=np.array(all_transects))
-        grp.create_array(name='scale', shape=(j,), chunks=(j,), dimension_names=('scale',), data=np.arange(j))
+        grp.create_array(name='model', chunks=(M,), dimension_names=('model',), data=np.array(all_models))
+        grp.create_array(name='transect', chunks=(T,), dimension_names=('transect',), data=np.array(all_transects))
+        grp.create_array(name='scale', chunks=(j,), dimension_names=('scale',), data=np.arange(j))
 
         kwargs = dict(shape=(M, T, j), chunks=(1, 1, j), dimension_names=('model', 'transect', 'scale'),
                       dtype=np.float64, fill_value=np.nan)
